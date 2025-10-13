@@ -365,7 +365,7 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
           )}
           <span style={{ 
             fontWeight: task.isSummaryTask ? 'bold' : 'normal',
-            color: task.isSummaryTask ? '#2c3e50' : '#495057'
+            color: task.isSummaryTask ? '#0078db' : '#495057'
           }}>
             {task.taskName}
           </span>
@@ -622,11 +622,11 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
       left,
       width,
       height: '20px',
-      backgroundColor: task.isSummaryTask ? '#34495e' : color,
+      backgroundColor: task.isSummaryTask ? '#0078db' : color,
       borderRadius: '4px',
       top: '6px',
       opacity: task.isSummaryTask ? 0.8 : 0.9,
-      border: task.isSummaryTask ? '2px solid #2c3e50' : 'none'
+      border: task.isSummaryTask ? '1px solid #0078db' : 'none'
     };
 
     const progressStyle: React.CSSProperties = {
@@ -635,7 +635,7 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
       top: 0,
       height: '100%',
       width: `${(task.progress ?? 0) * 100}%`,
-      backgroundColor: task.isSummaryTask ? '#2c3e50' : 'rgba(255,255,255,0.3)',
+      backgroundColor: task.isSummaryTask ? '#0078db' : 'rgba(255,255,255,0.3)',
       borderRadius: '4px'
     };
 

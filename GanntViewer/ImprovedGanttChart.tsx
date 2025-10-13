@@ -961,7 +961,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
             )}
             <span style={{ 
               fontWeight: task.isSummaryTask ? 'bold' : 'normal',
-              color: task.isSummaryTask ? '#2c3e50' : '#495057',
+              color: task.isSummaryTask ? '#0078db' : '#495057',
               fontSize: '14px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -1052,7 +1052,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       left,
       width,
       height: task.isSummaryTask ? '20px' : '16px',
-      backgroundColor: task.isSummaryTask ? '#2c3e50' : color,
+      backgroundColor: task.isSummaryTask ? '#0078db' : color,
       borderRadius: task.isSummaryTask ? '10px' : '8px',
       top: task.isSummaryTask ? '6px' : '8px',
       opacity: 0.9,
@@ -1076,7 +1076,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       top: 0,
       height: '100%',
       width: `${(task.progress ?? 0) * 100}%`,
-      backgroundColor: task.isSummaryTask ? '#2c3e50' : 'rgba(255,255,255,0.4)',
+      backgroundColor: task.isSummaryTask ? '#0078db' : 'rgba(255,255,255,0.4)',
       borderRadius: task.isSummaryTask ? '8px' : '4px'
     };
 
