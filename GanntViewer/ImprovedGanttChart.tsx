@@ -961,7 +961,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
             )}
             <span style={{ 
               fontWeight: task.isSummaryTask ? 'bold' : 'normal',
-              color: task.isSummaryTask ? '#0078db' : '#495057',
+              color: task.isSummaryTask ? '#34495e' : '#495057',
               fontSize: '14px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -1056,7 +1056,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       borderRadius: task.isSummaryTask ? '10px' : '8px',
       top: task.isSummaryTask ? '6px' : '8px',
       opacity: 0.9,
-      border: task.isSummaryTask ? '2px solid #34495e' : '1px solid rgba(255,255,255,0.4)',
+      border: task.isSummaryTask ? '1px solid #84b7e9' : '1px solid rgba(255,255,255,0.4)',
       boxShadow: isScrollingTo
         ? '0 6px 20px rgba(76, 175, 80, 0.5)' // Green glow during scroll animation
         : isSelected 

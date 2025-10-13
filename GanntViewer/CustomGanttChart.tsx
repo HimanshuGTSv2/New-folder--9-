@@ -365,7 +365,7 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
           )}
           <span style={{ 
             fontWeight: task.isSummaryTask ? 'bold' : 'normal',
-            color: task.isSummaryTask ? '#0078db' : '#495057'
+            color: task.isSummaryTask ? '#34495e' : '#495057'
           }}>
             {task.taskName}
           </span>
