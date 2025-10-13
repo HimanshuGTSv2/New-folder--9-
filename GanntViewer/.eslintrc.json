@@ -1,0 +1,27 @@
+{
+  "env": {
+    "browser": true,
+    "es6": true,
+    "node": true
+  },
+  "extends": [
+    "eslint:recommended"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "globals": {
+    "ComponentFramework": true,
+    "React": true
+  },
+  "rules": {
+    "no-unused-vars": "off",
+    "no-undef": "off"
+  },
+  "ignorePatterns": ["generated/**/*", "*.d.ts"]
+}

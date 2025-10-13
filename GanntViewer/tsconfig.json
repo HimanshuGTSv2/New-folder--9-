@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "outDir": "../out/controls",
+    "typeRoots": ["../node_modules/@types", "./generated"]
+  },
+  "include": [
+    "./**/*",
+    "./generated/ManifestTypes.d.ts"
+  ],
+  "exclude": [
+    "../node_modules",
+    "../out"
+  ]
+}
