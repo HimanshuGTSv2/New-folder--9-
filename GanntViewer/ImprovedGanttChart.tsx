@@ -33,21 +33,27 @@ interface TaskHierarchy {
 
 export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IImprovedGanttState> {
   private containerRef: React.RefObject<HTMLDivElement>;
-  private leftGridRef: React.RefObject<HTMLDivElement>;
-  private rightTimelineRef: React.RefObject<HTMLDivElement>;
+  private mainScrollRef: React.RefObject<HTMLDivElement>;
   private hoverTimeoutId: number | null = null;
   // Instance-level cache that persists across renders without triggering setState
   private hierarchyCache: TaskHierarchy[] | null = null;
   private hierarchyCacheKey: string = '';
   private flatHierarchyCache: TaskHierarchy[] | null = null;
   private flatHierarchyCacheKey: string = '';
+  private lastScrollLeft: number = 0;
+  private headerScrollRAF: number | null = null;
+  // Performance optimization: Memoize expensive calculations
+  private memoizedTaskPositions = new Map<string, any>();
+  private memoizedTaskStyles = new Map<string, React.CSSProperties>();
+  private lastTasksVersion: string = '';
+  // Throttle state updates for better performance
+  private stateUpdateRAF: number | null = null;
 
   constructor(props: IImprovedGanttProps) {
     super(props);
     
     this.containerRef = React.createRef();
-    this.leftGridRef = React.createRef();
-    this.rightTimelineRef = React.createRef();
+    this.mainScrollRef = React.createRef();
     
     const { timelineStart, timelineEnd } = this.calculateTimelineBounds(props.tasks);
     const defaultZoomLevel = 'Week';
@@ -83,11 +89,13 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     if (prevProps.tasks !== this.props.tasks && this.props.tasks.length > 0) {
       const { timelineStart, timelineEnd } = this.calculateTimelineBounds(this.props.tasks);
       
-      // Clear instance-level caches
+      // Clear all caches when tasks change for performance
       this.hierarchyCache = null;
       this.hierarchyCacheKey = '';
       this.flatHierarchyCache = null;
       this.flatHierarchyCacheKey = '';
+      this.memoizedTaskPositions.clear();
+      this.memoizedTaskStyles.clear();
       
       this.setState({ 
         timelineStart, 
@@ -110,6 +118,18 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     if (this.throttleTimeout) {
       clearTimeout(this.throttleTimeout);
     }
+    if (this.headerScrollRAF) {
+      cancelAnimationFrame(this.headerScrollRAF);
+    }
+    if (this.stateUpdateRAF) {
+      cancelAnimationFrame(this.stateUpdateRAF);
+    }
+    
+    // Clear all caches to prevent memory leaks
+    this.memoizedTaskPositions.clear();
+    this.memoizedTaskStyles.clear();
+    this.hierarchyCache = null;
+    this.flatHierarchyCache = null;
   }
 
   private generateHierarchyCacheKey = (): string => {
@@ -223,124 +243,121 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
   };
 
   private changeZoomLevel = (newZoom: 'Day' | 'Week' | 'Month' | 'Quarter') => {
+    // Avoid unnecessary state updates
+    if (this.state.zoomLevel === newZoom) return;
+    
     const { timelineStart, timelineEnd } = this.state;
     const newWidth = this.calculateTimelineWidthByZoom(newZoom, timelineStart, timelineEnd);
     
-    this.setState({ 
-      zoomLevel: newZoom,
-      timelineWidth: newWidth
+    // Clear position cache when zoom changes as positions will be different
+    this.memoizedTaskPositions.clear();
+    
+    // Use RAF to batch state updates for better performance
+    if (this.stateUpdateRAF) {
+      cancelAnimationFrame(this.stateUpdateRAF);
+    }
+    
+    this.stateUpdateRAF = requestAnimationFrame(() => {
+      this.setState({ 
+        zoomLevel: newZoom,
+        timelineWidth: newWidth
+      });
+      this.stateUpdateRAF = null;
     });
   };
 
-  private syncScrollLeft = (scrollTop: number) => {
-    if (this.rightTimelineRef.current && this.rightTimelineRef.current.scrollTop !== scrollTop) {
-      this.rightTimelineRef.current.scrollTop = scrollTop;
-    }
-  };
-
-  private syncScrollRight = (scrollTop: number) => {
-    if (this.leftGridRef.current && this.leftGridRef.current.scrollTop !== scrollTop) {
-      this.leftGridRef.current.scrollTop = scrollTop;
-    }
-  };
-
   private syncTimelineHeaderScroll = (scrollLeft: number): void => {
-    const headerContainer = document.getElementById('timeline-header-container');
-    if (headerContainer && Math.abs(headerContainer.scrollLeft - scrollLeft) > 1) {
-      // Use smooth scrolling for header sync when called from scrollToTask
-      headerContainer.scrollTo({
-        left: scrollLeft,
-        behavior: 'smooth'
-      });
+    // Throttle header scroll updates more aggressively
+    if (Math.abs(this.lastScrollLeft - scrollLeft) < 5) return;
+    
+    this.lastScrollLeft = scrollLeft;
+    
+    if (this.headerScrollRAF) {
+      cancelAnimationFrame(this.headerScrollRAF);
     }
+    
+    this.headerScrollRAF = requestAnimationFrame(() => {
+      const headerContainer = document.getElementById('timeline-header-container');
+      if (headerContainer) {
+        // Apply the scroll offset to align with timeline content
+        headerContainer.scrollLeft = Math.max(0, scrollLeft);
+      }
+      this.headerScrollRAF = null;
+    });
   };
 
   private scrollToTask = (task: TaskData, taskIndex: number): void => {
-    const rowHeight = 36;
     const taskPosition = this.calculateTaskPosition(task);
     
-    // Get container dimensions
-    const leftContainer = this.leftGridRef.current;
-    const rightContainer = this.rightTimelineRef.current;
-    
-    if (!leftContainer || !rightContainer) return;
+    // Get the main scroll container
+    const mainContainer = this.mainScrollRef.current;
+    if (!mainContainer) return;
     
     // Set scrolling animation state for visual feedback
     this.setState({ scrollingToTask: task.taskDataId });
     
-    const containerHeight = rightContainer.clientHeight;
-    const containerWidth = rightContainer.clientWidth;
+    const containerWidth = mainContainer.clientWidth;
     
-    // Calculate vertical scroll position (center the task row in the viewport)
-    const taskRowTop = taskIndex * rowHeight;
-    const targetVerticalScroll = Math.max(0, taskRowTop - (containerHeight / 2) + (rowHeight / 2));
-    
-    // Calculate horizontal scroll position (center the task bar in the viewport)
-    const taskStartX = taskPosition.left;
-    const taskEndX = taskPosition.left + taskPosition.width;
+    // Only calculate horizontal scroll position - keep current vertical position
+    const gridWidth = 731; // Width of sticky columns
+    const taskStartX = taskPosition.left + 20; // Add padding offset (where task actually starts in timeline)
     const taskCenterX = taskStartX + (taskPosition.width / 2);
     
-    // Center the task horizontally in the viewport
-    let targetHorizontalScroll = Math.max(0, taskCenterX - (containerWidth / 2));
+    // Calculate the available timeline viewport width (subtract sticky grid width)
+    const timelineViewportWidth = containerWidth - gridWidth;
     
-    // Ensure we don't scroll past the beginning
+    // Calculate where we want the task center to appear in the visible timeline area
+    // We want it in the middle of the visible timeline viewport
+    const desiredTaskPositionInViewport = timelineViewportWidth / 2;
+    
+    // Calculate the scroll position needed to achieve this
+    // We need to scroll so that taskCenterX appears at (gridWidth + desiredTaskPositionInViewport)
+    let targetHorizontalScroll = taskCenterX - desiredTaskPositionInViewport;
+    
+    // Ensure we don't scroll beyond the minimum (just past the grid)
     targetHorizontalScroll = Math.max(0, targetHorizontalScroll);
     
-    // If the task is very wide, prioritize showing the start of the task
-    if (taskPosition.width > containerWidth * 0.8) {
-      targetHorizontalScroll = Math.max(0, taskStartX - containerWidth * 0.1); // Show task start with 10% padding
+    // If the task is very wide, prioritize showing the start of the task in the middle
+    if (taskPosition.width > timelineViewportWidth * 0.8) {
+      targetHorizontalScroll = Math.max(0, taskStartX - desiredTaskPositionInViewport);
     }
     
-    // Add enhanced visual effects to the timeline bar and task row
-    const timelineBar = rightContainer.querySelector(`[data-task-timeline-id="${task.taskDataId}"]`) as HTMLElement;
-    const taskRow = leftContainer.querySelector(`[data-task-id="${task.taskDataId}"]`) as HTMLElement;
-    
-    if (timelineBar) {
-      timelineBar.classList.add('gantt-timeline-highlight');
-      timelineBar.style.animation = 'pulse 1s ease-in-out, glow 1.5s ease-in-out';
-    }
-    
-    if (taskRow) {
-      taskRow.classList.add('gantt-row-highlight');
-    }
-    
-    // Smooth scroll with enhanced easing
-    const scrollOptions: ScrollToOptions = {
-      behavior: 'smooth'
-    };
-    
-    // Scroll both containers with smooth animation
-    leftContainer.scrollTo({
-      top: targetVerticalScroll,
-      ...scrollOptions
-    });
-    
-    rightContainer.scrollTo({
-      top: targetVerticalScroll,
+    // Smooth scroll horizontally only - preserve current vertical position
+    mainContainer.scrollTo({
       left: targetHorizontalScroll,
-      ...scrollOptions
+      behavior: 'smooth'
     });
     
-    // Smoothly sync the header scroll with a slight delay for better visual effect
+    // Add visual feedback effects
     setTimeout(() => {
-      this.syncTimelineHeaderScroll(targetHorizontalScroll);
-    }, 50);
-    
-    // Clear scrolling animation state and remove highlight effects after animation completes
-    setTimeout(() => {
-      this.setState({ scrollingToTask: null });
+      const timelineBar = mainContainer.querySelector(`[data-task-timeline-id="${task.taskDataId}"]`) as HTMLElement;
+      const taskRow = mainContainer.querySelector(`[data-task-id="${task.taskDataId}"]`) as HTMLElement;
+      
       if (timelineBar) {
-        timelineBar.classList.remove('gantt-timeline-highlight');
-        timelineBar.style.animation = '';
+        timelineBar.classList.add('gantt-timeline-highlight');
+        timelineBar.style.animation = 'pulse 1s ease-in-out, glow 1.5s ease-in-out';
       }
+      
       if (taskRow) {
-        taskRow.classList.remove('gantt-row-highlight');
+        taskRow.classList.add('gantt-row-highlight');
       }
-    }, 1500); // Extended to allow for all animations to complete
+      
+      // Clear effects after animation
+      setTimeout(() => {
+        this.setState({ scrollingToTask: null });
+        if (timelineBar) {
+          timelineBar.classList.remove('gantt-timeline-highlight');
+          timelineBar.style.animation = '';
+        }
+        if (taskRow) {
+          taskRow.classList.remove('gantt-row-highlight');
+        }
+      }, 1500);
+    }, 100);
     
-    console.log(`Scrolling to task: ${task.taskName} at row ${taskIndex}
-      - Vertical: ${targetVerticalScroll} (centered in ${containerHeight}px container)
-      - Horizontal: ${targetHorizontalScroll} (task center: ${taskCenterX}, container width: ${containerWidth})`);
+    console.log(`Scrolling to task: ${task.taskName}
+      - Horizontal: ${targetHorizontalScroll} (task center: ${taskCenterX}, will appear at middle of ${timelineViewportWidth}px timeline)
+      - Vertical: keeping current position`);
   };
 
   private buildHierarchy = (): TaskHierarchy[] => {
@@ -529,6 +546,14 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
   };
 
   private calculateTaskPosition = (task: TaskData): { left: number; width: number } => {
+    // Create cache key for memoization
+    const cacheKey = `${task.taskDataId}-${task.startDate.getTime()}-${task.finishDate.getTime()}-${this.state.timelineWidth}-${this.state.timelineStart.getTime()}-${this.state.timelineEnd.getTime()}`;
+    
+    // Check cache first
+    if (this.memoizedTaskPositions.has(cacheKey)) {
+      return this.memoizedTaskPositions.get(cacheKey);
+    }
+    
     const { timelineStart, timelineEnd, timelineWidth } = this.state;
     const totalDuration = timelineEnd.getTime() - timelineStart.getTime();
     
@@ -538,7 +563,20 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const left = (taskStart / totalDuration) * timelineWidth;
     const width = Math.max((taskDuration / totalDuration) * timelineWidth, 20);
     
-    return { left, width };
+    const result = { left, width };
+    
+    // Cache the result
+    this.memoizedTaskPositions.set(cacheKey, result);
+    
+    // Clean cache if it gets too large (prevent memory leaks)
+    if (this.memoizedTaskPositions.size > 1000) {
+      const firstKey = this.memoizedTaskPositions.keys().next().value;
+      if (firstKey) {
+        this.memoizedTaskPositions.delete(firstKey);
+      }
+    }
+    
+    return result;
   };
 
   private formatDate = (date: Date): string => {
@@ -894,20 +932,41 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const isSelected = selectedTask === task.taskDataId;
     const isScrollingTo = this.state.scrollingToTask === task.taskDataId;
     
-    const rowStyle: React.CSSProperties = {
-      display: 'flex',
-      height: '36px', // Increased height for better readability
-      borderBottom: '1px solid #e9ecef',
-      borderLeft: isSelected ? '4px solid #2196f3' : '4px solid transparent', // Left border for selected task
-      backgroundColor: isScrollingTo 
-        ? '#c8e6c9' // Light green during scroll animation
-        : isHovered 
-          ? '#f1f3f4' 
-          : (isSelected ? '#bbdefb' : (index % 2 === 0 ? '#ffffff' : '#fafbfc')), // Stronger selected color
-      cursor: 'pointer',
-      transition: isScrollingTo ? 'all 0.3s ease-in-out' : 'all 0.2s ease',
-      transform: isScrollingTo ? 'scale(1.01)' : 'scale(1)' // Subtle scale during scroll
-    };
+    // Memoize row style calculation for better performance
+    const styleKey = `${task.taskDataId}-${index}-${isHovered}-${isSelected}-${isScrollingTo}`;
+    let rowStyle: React.CSSProperties;
+    
+    if (this.memoizedTaskStyles.has(styleKey)) {
+      rowStyle = this.memoizedTaskStyles.get(styleKey)!;
+    } else {
+      rowStyle = {
+        display: 'flex',
+        height: '36px', // Increased height for better readability
+        borderBottom: '1px solid #e9ecef',
+        borderLeft: isSelected ? '4px solid #2196f3' : '4px solid transparent', // Left border for selected task
+        backgroundColor: isScrollingTo 
+          ? '#c8e6c9' // Light green during scroll animation
+          : isHovered 
+            ? '#f1f3f4' 
+            : (isSelected ? '#bbdefb' : (index % 2 === 0 ? '#ffffff' : '#fafbfc')), // Stronger selected color
+        cursor: 'pointer',
+        transition: isScrollingTo ? 'all 0.3s ease-in-out' : 'all 0.2s ease',
+        transform: isScrollingTo ? 'scale(1.01)' : 'scale(1)' // Subtle scale during scroll
+      };
+      
+      // Cache the style (but only cache stable styles, not dynamic ones)
+      if (!isScrollingTo && !isHovered) {
+        this.memoizedTaskStyles.set(styleKey, rowStyle);
+        
+        // Clean cache if it gets too large
+        if (this.memoizedTaskStyles.size > 500) {
+          const firstKey = this.memoizedTaskStyles.keys().next().value;
+          if (firstKey) {
+            this.memoizedTaskStyles.delete(firstKey);
+          }
+        }
+      }
+    }
     
     // Create optimized event handlers to prevent excessive re-renders
     const handleMouseEnter = this.ENABLE_HOVER_EFFECTS 
@@ -918,6 +977,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       : undefined;
     const handleClick = () => {
       this.setState({ selectedTask: task.taskDataId });
+      // Scroll to task with updated logic for sticky columns
       this.scrollToTask(task, index);
       if (this.props.onTaskClick) {
         this.props.onTaskClick(task);
@@ -1102,6 +1162,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           onClick={(e) => {
             e.stopPropagation(); // Prevent event bubbling
             this.setState({ selectedTask: task.taskDataId });
+            // Scroll to task with updated logic for sticky columns
             this.scrollToTask(task, index);
             if (this.props.onTaskClick) {
               this.props.onTaskClick(task);
@@ -1233,6 +1294,17 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     );
   };
 
+  private getVisibleTaskIndices = (visibleTasks: TaskHierarchy[], scrollTop: number, containerHeight: number) => {
+    const rowHeight = 36;
+    const startIndex = Math.floor(Math.max(0, scrollTop / rowHeight));
+    const endIndex = Math.min(
+      visibleTasks.length - 1,
+      Math.ceil((scrollTop + containerHeight) / rowHeight)
+    );
+    
+    return { startIndex, endIndex };
+  };
+
   public render(): JSX.Element {
     const hierarchy = this.buildHierarchy();
     const visibleTasks = this.flattenHierarchy(hierarchy);
@@ -1292,16 +1364,20 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           backgroundColor: '#ffffff',
           borderBottom: '2px solid #dee2e6'
         }}>
-          {/* Left Grid Header */}
+          {/* Left Grid Header - Sticky */}
           <div style={{ 
             width: gridWidth, 
             flexShrink: 0,
-            borderRight: '2px solid #dee2e6'
+            borderRight: '2px solid #dee2e6',
+            position: 'sticky',
+            left: 0,
+            zIndex: 101,
+            backgroundColor: '#ffffff'
           }}>
             {this.renderGridHeader()}
           </div>
           
-          {/* Right Timeline Header Container */}
+          {/* Right Timeline Header Container - Scrollable */}
           <div style={{ 
             flex: 1,
             overflow: 'hidden',
@@ -1310,8 +1386,8 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
             <div 
               id="timeline-header-container"
               style={{ 
-                width: timelineWidth, // Use exact timeline width for proper alignment
-                marginLeft: 20, // Will be controlled by sync,
+                width: timelineWidth + 20, // Include padding
+                paddingLeft: 20,
                 overflowX: 'hidden', // Will be controlled by sync
                 overflowY: 'hidden',
                 scrollBehavior: 'smooth' // Native smooth scrolling support
@@ -1322,83 +1398,66 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           </div>
         </div>
 
-        {/* Content Area */}
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Left Grid Content */}
+        {/* Content Area - Single Unified Scrollable Container */}
+        <div 
+          ref={this.mainScrollRef}
+          style={{ 
+            flex: 1, 
+            overflowY: 'auto',
+            overflowX: 'auto',
+            scrollBehavior: 'smooth',
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'thin',
+            overscrollBehavior: 'none',
+            position: 'relative'
+          }}
+          onScroll={(e) => {
+            const target = e.target as HTMLDivElement;
+            // Sync horizontal scrolling with the sticky header
+            this.syncTimelineHeaderScroll(target.scrollLeft - gridWidth);
+          }}
+        >
           <div style={{ 
-            width: gridWidth, 
-            flexShrink: 0, 
-            borderRight: '2px solid #dee2e6',
             display: 'flex',
-            flexDirection: 'column'
+            minHeight: `${visibleTasks.length * 36}px`,
+            width: `${gridWidth + timelineWidth + 20}px` // Total width including timeline
           }}>
-            <div 
-              ref={this.leftGridRef}
-              style={{ 
-                flex: 1,
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                scrollBehavior: 'smooth' // Native smooth scrolling support
-              }}
-              onScroll={(e) => {
-                const target = e.target as HTMLDivElement;
-                // Only sync vertical scrolling
-                if (target.scrollTop !== (this.rightTimelineRef.current?.scrollTop || 0)) {
-                  this.syncScrollLeft(target.scrollTop);
-                }
-              }}
-            >
+            {/* Left Grid Content - Sticky */}
+            <div style={{ 
+              width: gridWidth, 
+              flexShrink: 0, 
+              borderRight: '2px solid #dee2e6',
+              position: 'sticky',
+              left: 0,
+              zIndex: 50,
+              backgroundColor: '#ffffff'
+            }}>
               {visibleTasks.map((taskHierarchy, index) => 
                 <div key={`task-row-${taskHierarchy.task.taskDataId}-${index}`}>
                   {this.renderTaskRow(taskHierarchy, index)}
                 </div>
               )}
             </div>
-          </div>
-          
-          {/* Right Timeline Content */}
-          <div style={{ 
-            flex: 1, 
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}>
-            <div 
-              ref={this.rightTimelineRef}
-              style={{ 
-                flex: 1,
-                overflowY: 'auto',
-                overflowX: 'auto', // Allow horizontal scrolling
-                scrollBehavior: 'smooth' // Native smooth scrolling support
-              }}
-              onScroll={(e) => {
-                const target = e.target as HTMLDivElement;
-                // Only sync vertical scrolling, preserve horizontal scrolling
-                if (target.scrollTop !== (this.leftGridRef.current?.scrollTop || 0)) {
-                  this.syncScrollRight(target.scrollTop);
-                }
-                // Sync horizontal scrolling with the sticky header
-                this.syncTimelineHeaderScroll(target.scrollLeft);
-              }}
-            >
+            
+            {/* Right Timeline Content */}
+            <div style={{ 
+              width: timelineWidth + 20,
+              position: 'relative',
+              paddingLeft: 20
+            }}>
               <div style={{ 
-                width: timelineWidth, // Use exact timeline width for consistency
-                position: 'relative'
+                position: 'relative',
+                minHeight: `${visibleTasks.length * 36}px`
               }}>
-                <div style={{ 
-                  position: 'relative',
-                  minHeight: `${visibleTasks.length * 36}px` // Updated to match new row height
-                }}>
-                  {/* Render task bars first (lower z-index) */}
-                  {visibleTasks.map((taskHierarchy, index) => 
-                    <div key={`timeline-bar-${taskHierarchy.task.taskDataId}-${index}`}>
-                      {this.renderTimelineBar(taskHierarchy, index)}
-                    </div>
-                  )}
-                  {/* Render dependency lines on top (higher z-index) */}
-                  <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-                    {this.renderDependencyLines(visibleTasks)}
+                {/* Render task bars first (lower z-index) */}
+                {visibleTasks.map((taskHierarchy, index) => 
+                  <div key={`timeline-bar-${taskHierarchy.task.taskDataId}-${index}`}>
+                    {this.renderTimelineBar(taskHierarchy, index)}
                   </div>
+                )}
+                {/* Render dependency lines on top (higher z-index) */}
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
+                  {this.renderDependencyLines(visibleTasks)}
                 </div>
               </div>
             </div>
