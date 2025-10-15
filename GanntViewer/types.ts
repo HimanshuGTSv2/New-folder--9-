@@ -17,4 +17,5 @@ export interface TaskData {
   isSummaryTask?: boolean; // New field: indicates if this is a parent/group task
   parentTask?: string; // New field: ID of the parent task (for child tasks)
   taskIndex?: number; // New field for ordering
+  isMilestone?: boolean; // New field: indicates if this is a milestone task (displays as diamond)
 }

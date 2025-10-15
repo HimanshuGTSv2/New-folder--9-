@@ -274,7 +274,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const containerWidth = mainContainer.clientWidth;
     
     // Only calculate horizontal scroll position - keep current vertical position
-    const gridWidth = 731; // Width of sticky columns
+    const gridWidth = 747; // Width of sticky columns
     const taskStartX = taskPosition.left + 20; // Add padding offset (where task actually starts in timeline)
     const taskCenterX = taskStartX + (taskPosition.width / 2);
     
@@ -867,7 +867,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       >
         {/* WBS Column */}
         <div style={{ 
-          width: 80, 
+          width: 74, 
           padding: '8px', 
           borderRight: '1px solid #dee2e6',
           display: 'flex',
@@ -882,13 +882,19 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
         
         {/* Task Name Column */}
         <div style={{ 
-          width: 300, // Reduced from 350 to make room for WBS column
+          width: 311, // Reduced from 350 to make room for WBS column
           padding: '8px 12px', 
           borderRight: '1px solid #dee2e6',
           display: 'flex',
-          alignItems: 'center'
+          alignItems: 'center',
+          overflow: 'hidden' // Ensure content doesn't overflow the column
         }}>
-          <div style={{ marginLeft: level * 20, display: 'flex', alignItems: 'center', width: '100%' }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            width: '100%',
+            paddingLeft: level * 20 // Apply indentation as padding instead of margin
+          }}>
             {hasChildren && (
               <span 
                 style={{ 
@@ -899,7 +905,8 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
                   color: '#007bff',
                   fontWeight: 'bold',
                   width: '16px',
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  flexShrink: 0 // Prevent shrinking
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -909,15 +916,15 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
                 {isExpanded ? '▼' : '▶'}
               </span>
             )}
-            <span style={{ 
-              fontWeight: task.isSummaryTask ? 'bold' : 'normal',
-              color: task.isSummaryTask ? '#34495e' : '#495057',
+          <span style={{
+              fontWeight: hasChildren ? 'bold' : 'normal',
+              color: hasChildren ? '#34495e' : '#495057',
               fontSize: '14px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: 205, // Updated for new column width (300 - padding - indentation)
-              display: 'inline-block'
+              flex: 1, // Take remaining space
+              minWidth: 0 // Allow shrinking
             }}
             title={task.taskName} // Show full name on hover
             >
@@ -996,6 +1003,11 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const color = this.getPhaseColor(task.taskPhase);
     const isSelected = this.state.selectedTask === task.taskDataId;
     const isScrollingTo = this.state.scrollingToTask === task.taskDataId;
+    
+    // Handle milestone tasks (diamond shape)
+    if (task.isMilestone === true) {
+      return this.renderMilestoneDiamond(task, left, color, isSelected, isScrollingTo, index);
+    }
     
     const barStyle: React.CSSProperties = {
       position: 'absolute',
@@ -1120,6 +1132,90 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     );
   };
 
+  private renderMilestoneDiamond = (
+    task: TaskData, 
+    left: number, 
+    color: string, 
+    isSelected: boolean, 
+    isScrollingTo: boolean, 
+    index: number
+  ): JSX.Element => {
+    const diamondSize = 14; // Reduced size from 20 to 14
+    const diamondStyle: React.CSSProperties = {
+      position: 'absolute',
+      left: left - diamondSize / 2, // Center the diamond on the date
+      top: '11px', // Adjusted for smaller size
+      width: diamondSize,
+      height: diamondSize,
+      backgroundColor: '#4CAF50', // Green color instead of phase color
+      transform: 'rotate(45deg)', // Create diamond shape
+      border: '2px solid #ffffff',
+      boxShadow: isScrollingTo
+        ? '0 4px 16px rgba(76, 175, 80, 0.5)' // Green glow during scroll animation
+        : isSelected 
+          ? '0 3px 10px rgba(76, 175, 80, 0.4)' // Green shadow for selected task
+          : '0 2px 6px rgba(0,0,0,0.3)',
+      zIndex: isScrollingTo ? 6 : (isSelected ? 5 : 4), // Bring milestone to front
+      cursor: 'pointer',
+      transition: isScrollingTo ? 'all 0.3s ease-in-out' : 'all 0.2s ease',
+      opacity: 0.9
+    };
+
+    // Container for the diamond with proper positioning
+    return (
+      <div style={{
+        position: 'relative',
+        height: '36px', // Updated to match row height
+        borderBottom: '1px solid #e9ecef',
+        borderLeft: isScrollingTo 
+          ? '4px solid #4caf50' // Green border during scroll animation
+          : isSelected 
+            ? '4px solid #2196f3' 
+            : '4px solid transparent', // Match grid row border
+        backgroundColor: isScrollingTo 
+          ? '#c8e6c9' // Light green during scroll animation
+          : isSelected 
+            ? '#bbdefb' 
+            : (index % 2 === 0 ? '#ffffff' : '#fafbfc'),
+        transition: isScrollingTo ? 'all 0.3s ease-in-out' : 'all 0.2s ease'
+      }}>
+        <div 
+          style={diamondStyle}
+          data-task-timeline-id={task.taskDataId}
+          onClick={(e) => {
+            e.stopPropagation(); // Prevent event bubbling
+            this.setState({ selectedTask: task.taskDataId });
+            // Scroll to task with updated logic for sticky columns
+            this.scrollToTask(task, index);
+            if (this.props.onTaskClick) {
+              this.props.onTaskClick(task);
+            }
+          }}
+          title={`Milestone: ${task.taskName} - ${this.formatDate(task.startDate)}`}
+        >
+        </div>
+        
+        {/* Milestone label */}
+        <div style={{
+          position: 'absolute',
+          left: left + diamondSize / 2 + 15, // Increased space from 5 to 15
+          top: '50%',
+          transform: 'translateY(-50%)',
+          color: '#333',
+          fontSize: '11px',
+          fontWeight: 'bold',
+          whiteSpace: 'nowrap',
+          zIndex: 5,
+          maxWidth: '150px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }}>
+          {task.taskName}
+        </div>
+      </div>
+    );
+  };
+
   private renderGridHeader = (): JSX.Element => {
     const headerStyle: React.CSSProperties = {
       height: '40px',
@@ -1141,7 +1237,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           alignItems: 'center',
           justifyContent: 'center'
         }}>
-          Id
+          WBS
         </div>
         <div style={{ 
           width: 300, // Reduced from 350 to make room for WBS column
@@ -1210,7 +1306,13 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const hierarchy = this.buildHierarchy();
     const visibleTasks = this.flattenHierarchy(hierarchy);
     const { timelineWidth } = this.state;
-    const gridWidth = 741; // Updated width for left grid (80 + 300 + 100 + 100 + 80 + 80 + 1 for border)
+    const gridWidth = 747; // Updated width for left grid (80 + 300 + 100 + 100 + 80 + 80 + 7 for borders)
+
+    // Debug logging
+    console.log(`ImprovedGanttChart render: ${this.props.tasks.length} input tasks, ${hierarchy.length} hierarchy nodes, ${visibleTasks.length} visible tasks`);
+    if (visibleTasks.length === 0) {
+      console.log('❌ No visible tasks! Check hierarchy building...');
+    }
 
     // Add CSS keyframes for scroll animations
     const scrollAnimationStyles = `
@@ -1301,7 +1403,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
               {/* Right Timeline Header */}
               <div style={{ 
                 width: timelineWidth + 20,
-                paddingLeft: 20,
                 backgroundColor: '#ffffff'
               }}>
                 {this.renderTimelineHeader()}
@@ -1334,7 +1435,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
               <div style={{ 
                 width: timelineWidth + 20,
                 position: 'relative',
-                paddingLeft: 20
               }}>
                 <div style={{ 
                   position: 'relative',

@@ -41,6 +41,17 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
     this.loadDataAndInitializeGantt();
   }
 
+  public componentDidUpdate(prevProps: IGanttChartProps): void {
+    // Check if projectId parameter has changed
+    const currentProjectId = this.props.context.parameters.projectId?.raw;
+    const previousProjectId = prevProps.context.parameters.projectId?.raw;
+    
+    if (currentProjectId !== previousProjectId) {
+      console.log(`ProjectId changed from "${previousProjectId}" to "${currentProjectId}". Reloading data...`);
+      this.loadDataAndInitializeGantt();
+    }
+  }
+
   private fixHierarchyIssues = (tasks: TaskData[]): TaskData[] => {
     console.log('=== Processing Hierarchy from Data Relationships ===');
     console.log('Raw task data sample (first 3):', tasks.slice(0, 3).map(t => ({
@@ -247,8 +258,13 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
   private loadDataAndInitializeGantt = async (): Promise<void> => {
     try {
       this.setState({ isLoading: true, error: null });
+      
+      // Get the projectId from the component input parameter
+      const projectId = this.props.context.parameters.projectId?.raw || undefined;
+      console.log('Loading data with projectId filter:', projectId);
+      
       // Fetch all data at once (use large page size to get all records)
-      const taskData = await this.dataverseService.fetchTaskData(false, 10000);
+      const taskData = await this.dataverseService.fetchTaskData(false, 10000, projectId);
       
       // Fix hierarchy issues and create missing parent tasks
       const fixedTaskData = this.fixHierarchyIssues(taskData);
@@ -264,6 +280,8 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       // Debug: Log the raw data structure
       console.log('=== RAW DATAVERSE DATA ===');
       console.log('First few raw records:', taskData.slice(0, 3));
+      console.log('Sample task with parentTask:', taskData.find(t => t.parentTask));
+      console.log('Sample task without parentTask:', taskData.find(t => !t.parentTask));
       
       console.log(`Dataverse Data Summary:
         - Total Tasks: ${sortedTaskData.length}
@@ -363,8 +381,13 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       this.setState({ isLoading: true, error: null });
       
       console.log('Refreshing data from Dataverse...');
+      
+      // Get the projectId from the component input parameter
+      const projectId = this.props.context.parameters.projectId?.raw || undefined;
+      console.log('Refreshing data with projectId filter:', projectId);
+      
       // Refresh all data at once (use large page size to get all records)
-      const taskData = await this.dataverseService.refreshData(10000);
+      const taskData = await this.dataverseService.refreshData(10000, projectId);
       
       // Fix hierarchy issues and create missing parent tasks
       const fixedTaskData = this.fixHierarchyIssues(taskData);
@@ -401,6 +424,9 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
   public render(): React.ReactNode {
     const { height = '500px', width = '100%' } = this.props;
     const { isLoading, error, taskData, totalRecords, cacheStats } = this.state;
+    
+    // Get current projectId for display
+    const currentProjectId = this.props.context.parameters.projectId?.raw;
 
     if (isLoading) {
       return (
@@ -413,8 +439,10 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
           backgroundColor: '#f5f5f5'
         }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>Loading All TaskData...</div>
-            <div style={{ fontSize: '14px', color: '#666' }}>Fetching all records from Dataverse table sorted by index</div>
+            <div style={{ fontSize: '18px', marginBottom: '10px' }}>Loading TaskData...</div>
+            <div style={{ fontSize: '14px', color: '#666' }}>
+              {currentProjectId ? `Filtering by Project: ${currentProjectId}` : 'Loading all projects'}
+            </div>
           </div>
         </div>
       );
@@ -465,7 +493,21 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
         }}>
           <span style={{ fontWeight: 'bold', fontSize: '16px' }}>Project Management Gantt Chart - Power Apps</span>
           
-          <span style={{ marginLeft: '20px', fontSize: '12px', color: '#666' }}>
+          {/* Project Filter Display */}
+          {currentProjectId && (
+            <span style={{ 
+              marginLeft: '10px', 
+              fontSize: '12px', 
+              color: '#fff',
+              backgroundColor: '#007bff',
+              padding: '2px 8px',
+              borderRadius: '12px'
+            }}>
+              Project: {currentProjectId}
+            </span>
+          )}
+          
+          <span style={{ marginLeft: currentProjectId ? '10px' : '20px', fontSize: '12px', color: '#666' }}>
             Total Tasks: {totalRecords}
             {(() => {
               const summaryTasks = taskData.filter(t => t.isSummaryTask).length;

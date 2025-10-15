@@ -23,7 +23,7 @@ export class DataverseService {
    * Fetch TaskData records from Dataverse with cursor-based pagination
    * Uses createdon field for pagination instead of $skip which isn't supported in Dataverse
    */
-  public async fetchTaskData(isLoadMore: boolean = false, pageSize: number = 50): Promise<TaskData[]> {
+  public async fetchTaskData(isLoadMore: boolean = false, pageSize: number = 50, projectId?: string): Promise<TaskData[]> {
     try {
       // Reset cursor if this is not a load more operation
       if (!isLoadMore) {
@@ -39,8 +39,8 @@ export class DataverseService {
         console.log(`Reduced page size to ${pageSize} due to previous errors`);
       }
 
-      // Check cache first
-      const cacheKey = isLoadMore ? `more-${this.lastLoadedDate}` : 'initial';
+      // Check cache first - include projectId in cache key
+      const cacheKey = isLoadMore ? `more-${this.lastLoadedDate}-${projectId || 'all'}` : `initial-${projectId || 'all'}`;
       const now = Date.now();
       
       if (this.cache.has(cacheKey) && (now - this.lastFetchTime) < this.cacheExpiry) {
@@ -58,18 +58,33 @@ export class DataverseService {
       // Build query with cursor-based pagination (no $skip - not supported in Dataverse)
       let query = `?$select=*&$orderby=pme_taskindex asc&$top=${pageSize}`;
       
-     // Add cursor filter for load more operations
+      // Build filter conditions
+      let filterConditions: string[] = [];
+      
+      // Add project filter if projectId is provided
+      if (projectId && projectId.trim() !== '') {
+        filterConditions.push(`pme_projectuid eq '${projectId.trim()}'`);
+      }
+      
+      // Add cursor filter for load more operations
       if (isLoadMore && this.lastLoadedDate) {
         // Format the date properly for OData filter
         const isoDate = new Date(this.lastLoadedDate).toISOString();
-        query += `&$filter=createdon lt ${isoDate}`;
+        filterConditions.push(`createdon lt ${isoDate}`);
       }
+      
+      // Combine filter conditions
+      if (filterConditions.length > 0) {
+        query += `&$filter=${filterConditions.join(' and ')}`;
+      }
+      
       // Add count only for the first request
       if (!isLoadMore) {
         query += `&$count=true`;
       }
       
       console.log(`Fetching ${isLoadMore ? 'more' : 'initial'} data with query: ${query}`);
+      console.log(`Project filter: ${projectId ? `pme_projectuid = '${projectId}'` : 'No project filter'}`);
       
       const response = await this.context.webAPI.retrieveMultipleRecords(this.entityName, query);
 
@@ -114,7 +129,7 @@ export class DataverseService {
       
       if (this.retryCount <= this.maxRetries && pageSize > 10) {
         console.log(`Retrying with smaller batch size (attempt ${this.retryCount}/${this.maxRetries})`);
-        return this.fetchTaskData(isLoadMore, Math.floor(pageSize / 2));
+        return this.fetchTaskData(isLoadMore, Math.floor(pageSize / 2), projectId);
       }
       
       throw error;
@@ -124,13 +139,13 @@ export class DataverseService {
   /**
    * Load more data (for infinite scrolling)
    */
-  public async loadMoreData(): Promise<TaskData[]> {
+  public async loadMoreData(projectId?: string): Promise<TaskData[]> {
     if (!this.hasMoreData) {
       console.log('No more data to load');
       return [];
     }
 
-    const newTasks = await this.fetchTaskData(true, this.pageSize);
+    const newTasks = await this.fetchTaskData(true, this.pageSize, projectId);
     this.allLoadedTasks.push(...newTasks);
     return newTasks;
   }
@@ -172,10 +187,10 @@ export class DataverseService {
   /**
    * Force refresh data (clears cache and fetches fresh data)
    */
-  public async refreshData(pageSize: number = 100): Promise<TaskData[]> {
+  public async refreshData(pageSize: number = 100, projectId?: string): Promise<TaskData[]> {
     this.clearCache();
     this.allLoadedTasks = [];
-    return await this.fetchTaskData(false, pageSize);
+    return await this.fetchTaskData(false, pageSize, projectId);
   }
 
   /**
@@ -184,13 +199,6 @@ export class DataverseService {
   private async determineEntityName(): Promise<void> {
     const possibleEntityNames = [
       "pme_taskdata",      // From the form you're creating (primary)
-      "pme_TaskData",      // Mixed case variant
-      "TaskData",          // Just the display name
-      "taskdata",          // singular without prefix
-      "pme_taskdatas",     // plural with prefix
-      "taskdatas",         // plural without prefix
-      "cr6d4_taskdata",    // different prefix pattern
-      "new_taskdata"       // another common prefix
     ];
     
     console.log('Attempting to determine entity name from possible options:', possibleEntityNames);
@@ -253,7 +261,15 @@ export class DataverseService {
     const taskName = record.pme_taskname || record.pme_name || record.name || `Task ${index + 1}`;
     
     // Get parent task information - pme_parenttask is a lookup field
-    const parentTask = this.getLookupValue(record, 'pme_parenttask') || record.parent || record.pme_parenttask;
+    const rawParentTask = record.pme_parenttaskuid || record.parenttaskuid || record.pme_parenttask;
+    
+    // Prevent circular references: a task cannot be its own parent
+    const parentTask = rawParentTask === taskId ? undefined : rawParentTask;
+    
+    // Debug circular reference prevention
+    if (rawParentTask === taskId) {
+      console.log(`🔄 Prevented circular reference for task: ${taskName} (${taskId})`);
+    }
     
     // Get successor information - pme_successor is also a lookup field
     const successor = this.getLookupValue(record, 'pme_successor') || record.successor;
@@ -276,6 +292,9 @@ export class DataverseService {
     // Determine if this is a summary task
     const isSummaryTask = record.pme_issummarytask || this.hasPotentialChildren(record, index);
     
+    // Determine if this is a milestone task
+    const isMilestone = record.pme_ismilestone === true || record.pme_ismilestone === 1;
+    
     // Get task index for sorting
     const taskIndex = record.pme_taskindex || record.taskindex || index;
     
@@ -288,6 +307,7 @@ export class DataverseService {
       progress=${Math.round(progress * 100)}%,
       taskPhase=${taskPhase},
       isSummaryTask=${isSummaryTask}, 
+      isMilestone=${isMilestone}, 
       parentTask=${parentTask}, 
       taskIndex=${taskIndex}`);
     
@@ -303,7 +323,7 @@ export class DataverseService {
       progress: progress,
       
       // Handle project fields - pme_projectid might also be a lookup
-      projectId: this.getLookupValue(record, 'pme_projectid') || 'Project-001',
+      projectId: record.pme_projectuid || record.projectuid || this.getLookupValue(record, 'pme_projectid') || 'Project-001',
       projectUID: record.pme_projectuid || `project-uid-${taskId}`,
       
       dependencyType: this.mapDependencyType(dependencyType),
@@ -311,6 +331,7 @@ export class DataverseService {
       successorUID: successorUID,
       
       isSummaryTask: isSummaryTask,
+      isMilestone: isMilestone,
       parentTask: parentTask,
       taskIndex: taskIndex
     };

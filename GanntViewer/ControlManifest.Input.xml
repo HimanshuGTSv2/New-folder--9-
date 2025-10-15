@@ -17,6 +17,8 @@
       <domain></domain>
       -->
     </external-service-usage>
+    <!-- property node defines a configurable property that the control accepts -->
+    <property name="projectId" display-name-key="Project_ID_Display_Key" description-key="Project_ID_Desc_Key" of-type="SingleLine.Text" usage="input" required="false" />
     <!-- dataset node represents a set of entity records on CDS; allow more than one datasets -->
     <data-set name="sampleDataSet" display-name-key="Dataset_Display_Key">
       <!-- 'property-set' node represents a unique, configurable property that each record in the dataset must provide. -->

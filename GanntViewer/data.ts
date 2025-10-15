@@ -26,7 +26,8 @@ export const staticTaskData: TaskData[] = [
     isSummaryTask: true, // Level 1 - Main project group
     parentTask: undefined, // No parent
     duration: 45,
-    progress: 0.6
+    progress: 0.6,
+    isMilestone: false // Summary task, not a milestone
   },
   
   // LEVEL 2: Sub-phases under General Conditions
@@ -64,7 +65,8 @@ export const staticTaskData: TaskData[] = [
     isSummaryTask: false, // Level 3 - Actual task
     parentTask: "subphase-1-1", // Child of Project Initiation Phase
     duration: 3,
-    progress: 1.0
+    progress: 1.0,
+    isMilestone: false // Regular task
   },
   
   {
@@ -95,12 +97,33 @@ export const staticTaskData: TaskData[] = [
     projectId: "PME-1301",
     projectUID: "project-uid-1",
     dependencyType: "FinishToStart",
-    successor: undefined,
+    successor: "milestone-1-1-1",
     successorUID: undefined,
     isSummaryTask: false, // Level 3 - Actual task
     parentTask: "subphase-1-1", // Child of Project Initiation Phase
     duration: 7,
-    progress: 0.6
+    progress: 0.6,
+    isMilestone: false // Regular task
+  },
+
+  // MILESTONE: Project Initiation Complete
+  {
+    taskNumber: "1.1.M1",
+    taskDataId: "milestone-1-1-1",
+    taskName: "Project Initiation Complete",
+    taskPhase: "Initiation",
+    startDate: new Date('2025-01-30'),
+    finishDate: new Date('2025-01-30'),
+    projectId: "PME-1301",
+    projectUID: "project-uid-1",
+    dependencyType: "FinishToStart",
+    successor: "subphase-1-2",
+    successorUID: undefined,
+    isSummaryTask: false,
+    parentTask: "subphase-1-1", // Child of Project Initiation Phase
+    duration: 0, // Milestones have 0 duration
+    progress: 1.0, // Complete
+    isMilestone: true // This is a milestone
   },
 
   // LEVEL 2: Documentation & Planning Phase
