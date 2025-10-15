@@ -40,8 +40,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
   private hierarchyCacheKey: string = '';
   private flatHierarchyCache: TaskHierarchy[] | null = null;
   private flatHierarchyCacheKey: string = '';
-  private lastScrollLeft: number = 0;
-  private headerScrollRAF: number | null = null;
   // Performance optimization: Memoize expensive calculations
   private memoizedTaskPositions = new Map<string, any>();
   private memoizedTaskStyles = new Map<string, React.CSSProperties>();
@@ -117,9 +115,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     }
     if (this.throttleTimeout) {
       clearTimeout(this.throttleTimeout);
-    }
-    if (this.headerScrollRAF) {
-      cancelAnimationFrame(this.headerScrollRAF);
     }
     if (this.stateUpdateRAF) {
       cancelAnimationFrame(this.stateUpdateRAF);
@@ -263,26 +258,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
         timelineWidth: newWidth
       });
       this.stateUpdateRAF = null;
-    });
-  };
-
-  private syncTimelineHeaderScroll = (scrollLeft: number): void => {
-    // Throttle header scroll updates more aggressively
-    if (Math.abs(this.lastScrollLeft - scrollLeft) < 5) return;
-    
-    this.lastScrollLeft = scrollLeft;
-    
-    if (this.headerScrollRAF) {
-      cancelAnimationFrame(this.headerScrollRAF);
-    }
-    
-    this.headerScrollRAF = requestAnimationFrame(() => {
-      const headerContainer = document.getElementById('timeline-header-container');
-      if (headerContainer) {
-        // Apply the scroll offset to align with timeline content
-        headerContainer.scrollLeft = Math.max(0, scrollLeft);
-      }
-      this.headerScrollRAF = null;
     });
   };
 
@@ -813,111 +788,9 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
   };
 
   private renderDependencyLines = (tasks: TaskHierarchy[]): JSX.Element => {
-    const DEBUG_DEPENDENCIES = false; // Set to true for debugging dependency lines
-    
-    // Create a map for quick lookup of task index in the flattened visible list
-    const taskIndexMap = new Map<string, number>();
-    tasks.forEach((taskHierarchy, index) => {
-      taskIndexMap.set(taskHierarchy.task.taskDataId, index);
-      // Also map by task number for flexibility
-      taskIndexMap.set(taskHierarchy.task.taskNumber, index);
-    });
-    
-    if (DEBUG_DEPENDENCIES) {
-      console.log('=== Dependency Analysis ===');
-      console.log('Visible tasks with successors:');
-      tasks.forEach((th, idx) => {
-        if (th.task.successor) {
-          console.log(`${idx}: ${th.task.taskName} (${th.task.taskDataId}) -> successor: ${th.task.successor}`);
-          const successorExists = taskIndexMap.has(th.task.successor);
-          console.log(`  Successor found in visible tasks: ${successorExists}`);
-        }
-      });
-    }
-
-    const paths: JSX.Element[] = [];
-    
-    tasks.forEach((taskHierarchy, index) => {
-      const task = taskHierarchy.task;
-      
-      if (task.successor) {
-        // Find successor task in the flattened visible tasks
-        const successorIndex = taskIndexMap.get(task.successor);
-        const successorTaskHierarchy = successorIndex !== undefined ? tasks[successorIndex] : null;
-        
-        if (successorTaskHierarchy && successorIndex !== undefined) {
-          const successorTask = successorTaskHierarchy.task;
-          const taskPos = this.calculateTaskPosition(task);
-          const successorPos = this.calculateTaskPosition(successorTask);
-          
-          const startX = taskPos.left + taskPos.width;
-          const startY = (index * 36) + 18; // Row height * index + half row (36/2 = 18)
-          const endX = successorPos.left;
-          const endY = (successorIndex * 36) + 18; // Use correct successor row position
-          
-          // Skip drawing if positions are invalid
-          if (startX < 0 || endX < 0) {
-            return;
-          }
-          
-          if (DEBUG_DEPENDENCIES) {
-            console.log(`Drawing dependency: ${task.taskName} -> ${successorTask.taskName}`);
-            console.log(`  Positions: (${startX}, ${startY}) -> (${endX}, ${endY})`);
-          }
-          
-          // Create clean MS Project-style dependency line
-          const arrowSize = 4;
-          const lineColor = '#2c5aa0';
-          const gap = 8; // Gap from task bar to line start
-          
-          // Calculate clean L-shaped path like MS Project
-          let pathD: string;
-          
-          if (Math.abs(endY - startY) < 5) {
-            // Same row or very close - straight horizontal line
-            pathD = `M ${startX + gap} ${startY} L ${endX - gap - arrowSize} ${endY}`;
-          } else {
-            // Different rows - create clean L-shaped path
-            const cornerX = startX + 20;
-            pathD = `M ${startX + gap} ${startY} L ${cornerX} ${startY} L ${cornerX} ${endY} L ${endX - gap - arrowSize} ${endY}`;
-          }
-          
-          paths.push(
-            <g key={`dep-${task.taskDataId}-${successorTask.taskDataId}`}>
-              {/* Clean dependency line */}
-              <path
-                d={pathD}
-                stroke={lineColor}
-                strokeWidth="1.5"
-                fill="none"
-                opacity="0.9"
-              />
-              {/* Simple arrow head */}
-              <path
-                d={`M ${endX - gap} ${endY} L ${endX - gap - arrowSize} ${endY - arrowSize/2} L ${endX - gap - arrowSize} ${endY + arrowSize/2} Z`}
-                fill={lineColor}
-                opacity="0.9"
-              />
-            </g>
-          );
-        }
-      }
-    });
-    
+    // Dependency lines completely disabled
     return (
-      <svg 
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 5
-        }}
-      >
-        {paths}
-      </svg>
+      <div style={{ display: 'none' }}></div>
     );
   };
 
@@ -990,10 +863,27 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
+        data-task-id={task.taskDataId}
       >
+        {/* WBS Column */}
         <div style={{ 
-          width: 350, // Increased width to accommodate longer task names
-          padding: '8px 12px', // Increased padding for better spacing
+          width: 80, 
+          padding: '8px', 
+          borderRight: '1px solid #dee2e6',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          color: '#495057'
+        }}>
+          {task.taskWBS || task.taskNumber}
+        </div>
+        
+        {/* Task Name Column */}
+        <div style={{ 
+          width: 300, // Reduced from 350 to make room for WBS column
+          padding: '8px 12px', 
           borderRight: '1px solid #dee2e6',
           display: 'flex',
           alignItems: 'center'
@@ -1026,7 +916,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: 255, // Updated for new column width
+              maxWidth: 205, // Updated for new column width (300 - padding - indentation)
               display: 'inline-block'
             }}
             title={task.taskName} // Show full name on hover
@@ -1159,6 +1049,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       }}>
         <div 
           style={barStyle}
+          data-task-timeline-id={task.taskDataId}
           onClick={(e) => {
             e.stopPropagation(); // Prevent event bubbling
             this.setState({ selectedTask: task.taskDataId });
@@ -1243,7 +1134,17 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
         ...headerStyle
       }}>
         <div style={{ 
-          width: 350, // Updated to match task column width
+          width: 80, 
+          padding: '12px 8px', 
+          borderRight: '1px solid #dee2e6',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          Id
+        </div>
+        <div style={{ 
+          width: 300, // Reduced from 350 to make room for WBS column
           padding: '12px 16px', 
           borderRight: '1px solid #dee2e6',
           display: 'flex',
@@ -1309,7 +1210,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const hierarchy = this.buildHierarchy();
     const visibleTasks = this.flattenHierarchy(hierarchy);
     const { timelineWidth } = this.state;
-    const gridWidth = 731; // Updated width for left grid (350 + 100 + 100 + 80 + 80)
+    const gridWidth = 741; // Updated width for left grid (80 + 300 + 100 + 100 + 80 + 80 + 1 for border)
 
     // Add CSS keyframes for scroll animations
     const scrollAnimationStyles = `
@@ -1355,50 +1256,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
         <div dangerouslySetInnerHTML={{ __html: scrollAnimationStyles }} />
         {this.renderZoomControls()}
         
-        {/* Sticky Headers Row */}
-        <div style={{ 
-          display: 'flex',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          backgroundColor: '#ffffff',
-          borderBottom: '2px solid #dee2e6'
-        }}>
-          {/* Left Grid Header - Sticky */}
-          <div style={{ 
-            width: gridWidth, 
-            flexShrink: 0,
-            borderRight: '2px solid #dee2e6',
-            position: 'sticky',
-            left: 0,
-            zIndex: 101,
-            backgroundColor: '#ffffff'
-          }}>
-            {this.renderGridHeader()}
-          </div>
-          
-          {/* Right Timeline Header Container - Scrollable */}
-          <div style={{ 
-            flex: 1,
-            overflow: 'hidden',
-            position: 'relative'
-          }}>
-            <div 
-              id="timeline-header-container"
-              style={{ 
-                width: timelineWidth + 20, // Include padding
-                paddingLeft: 20,
-                overflowX: 'hidden', // Will be controlled by sync
-                overflowY: 'hidden',
-                scrollBehavior: 'smooth' // Native smooth scrolling support
-              }}
-            >
-              {this.renderTimelineHeader()}
-            </div>
-          </div>
-        </div>
-
-        {/* Content Area - Single Unified Scrollable Container */}
+        {/* Main Container with unified scrolling */}
         <div 
           ref={this.mainScrollRef}
           style={{ 
@@ -1411,53 +1269,87 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
             overscrollBehavior: 'none',
             position: 'relative'
           }}
-          onScroll={(e) => {
-            const target = e.target as HTMLDivElement;
-            // Sync horizontal scrolling with the sticky header
-            this.syncTimelineHeaderScroll(target.scrollLeft - gridWidth);
-          }}
         >
           <div style={{ 
             display: 'flex',
-            minHeight: `${visibleTasks.length * 36}px`,
-            width: `${gridWidth + timelineWidth + 20}px` // Total width including timeline
+            flexDirection: 'column',
+            minWidth: `${gridWidth + timelineWidth + 20}px` // Total width including timeline
           }}>
-            {/* Left Grid Content - Sticky */}
-            <div style={{ 
-              width: gridWidth, 
-              flexShrink: 0, 
-              borderRight: '2px solid #dee2e6',
-              position: 'sticky',
-              left: 0,
-              zIndex: 50,
-              backgroundColor: '#ffffff'
-            }}>
-              {visibleTasks.map((taskHierarchy, index) => 
-                <div key={`task-row-${taskHierarchy.task.taskDataId}-${index}`}>
-                  {this.renderTaskRow(taskHierarchy, index)}
-                </div>
-              )}
-            </div>
             
-            {/* Right Timeline Content */}
+            {/* Headers Row - Sticky */}
             <div style={{ 
-              width: timelineWidth + 20,
-              position: 'relative',
-              paddingLeft: 20
+              display: 'flex',
+              position: 'sticky',
+              top: 0,
+              zIndex: 100,
+              backgroundColor: '#ffffff',
+              borderBottom: '2px solid #dee2e6'
             }}>
+              {/* Left Grid Header - Sticky */}
               <div style={{ 
-                position: 'relative',
-                minHeight: `${visibleTasks.length * 36}px`
+                width: gridWidth, 
+                flexShrink: 0,
+                borderRight: '2px solid #dee2e6',
+                position: 'sticky',
+                left: 0,
+                zIndex: 101,
+                backgroundColor: '#ffffff'
               }}>
-                {/* Render task bars first (lower z-index) */}
+                {this.renderGridHeader()}
+              </div>
+              
+              {/* Right Timeline Header */}
+              <div style={{ 
+                width: timelineWidth + 20,
+                paddingLeft: 20,
+                backgroundColor: '#ffffff'
+              }}>
+                {this.renderTimelineHeader()}
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div style={{ 
+              display: 'flex',
+              minHeight: `${visibleTasks.length * 36}px`
+            }}>
+              {/* Left Grid Content - Sticky */}
+              <div style={{ 
+                width: gridWidth, 
+                flexShrink: 0, 
+                borderRight: '2px solid #dee2e6',
+                position: 'sticky',
+                left: 0,
+                zIndex: 50,
+                backgroundColor: '#ffffff'
+              }}>
                 {visibleTasks.map((taskHierarchy, index) => 
-                  <div key={`timeline-bar-${taskHierarchy.task.taskDataId}-${index}`}>
-                    {this.renderTimelineBar(taskHierarchy, index)}
+                  <div key={`task-row-${taskHierarchy.task.taskDataId}-${index}`}>
+                    {this.renderTaskRow(taskHierarchy, index)}
                   </div>
                 )}
-                {/* Render dependency lines on top (higher z-index) */}
-                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-                  {this.renderDependencyLines(visibleTasks)}
+              </div>
+              
+              {/* Right Timeline Content */}
+              <div style={{ 
+                width: timelineWidth + 20,
+                position: 'relative',
+                paddingLeft: 20
+              }}>
+                <div style={{ 
+                  position: 'relative',
+                  minHeight: `${visibleTasks.length * 36}px`
+                }}>
+                  {/* Render task bars first (lower z-index) */}
+                  {visibleTasks.map((taskHierarchy, index) => 
+                    <div key={`timeline-bar-${taskHierarchy.task.taskDataId}-${index}`}>
+                      {this.renderTimelineBar(taskHierarchy, index)}
+                    </div>
+                  )}
+                  {/* Render dependency lines on top (higher z-index) */}
+                  <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
+                    {this.renderDependencyLines(visibleTasks)}
+                  </div>
                 </div>
               </div>
             </div>

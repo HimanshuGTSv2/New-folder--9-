@@ -237,30 +237,44 @@ export class DataverseService {
     // Log the raw record structure for debugging
     console.log(`Raw record ${index}:`, record);
     
-    // Get task ID - your data shows 'id' field
-    const taskId = record.id || record.pme_taskdataid || `task-${index}`;
+    // Map to your exact Dataverse column names from the screenshots:
+    // - PercentComplete (Whole number field)
+    // - Duration (Decimal field) 
+    // - FinishDate (Date field)
+    // - StartDate (Date field)
     
-    // Get task name - your data shows 'name' field  
-    const taskName = record.name || record.pme_taskname || `Task ${index + 1}`;
+    // Get task ID - check for both schema name and logical name
+    const taskId = record.pme_taskdataid || record.id || `task-${index}`;
     
-    // Get parent task - your data shows 'parent' field
-    const parentTask = record.parent || record.pme_parenttask;
+    // Get TaskWBS - the new Index Column (fallback to taskNumber if not available)
+    const taskWBS = record.pme_taskwbs || record.taskwbs || record.pme_tasknumber || `${index + 1}`;
     
-    // Get successor information - check various possible field names
-    const successor = record.successor || record.pme_successor || record.successorId || record.successor_id;
-    const successorUID = record.successorUID || record.pme_successoruid || record.successor_uid;
-    const dependencyType = record.dependencyType || record.pme_dependencytype || record.dependency_type;
+    // Get task name - check multiple possible field names
+    const taskName = record.pme_taskname || record.pme_name || record.name || `Task ${index + 1}`;
     
-    // Since your data doesn't have dates, let's generate reasonable defaults
-    const baseDate = new Date('2024-01-01');
-    const startDate = new Date(baseDate);
-    startDate.setDate(startDate.getDate() + (index * 7)); // Spread tasks over time
+    // Get parent task information - pme_parenttask is a lookup field
+    const parentTask = this.getLookupValue(record, 'pme_parenttask') || record.parent || record.pme_parenttask;
     
-    const finishDate = new Date(startDate);
-    finishDate.setDate(finishDate.getDate() + 14); // Default 14 day duration
+    // Get successor information - pme_successor is also a lookup field
+    const successor = this.getLookupValue(record, 'pme_successor') || record.successor;
+    const successorUID = record.pme_successoruid || record.successorUID;
+    const dependencyType = record.pme_dependencytype || record.dependencyType;
     
-    // Determine if this is a summary task based on whether it has children
-    const isSummaryTask = this.hasPotentialChildren(record, index);
+    // Parse dates from your exact column names
+    const startDate = this.parseDate(record.pme_startdate || record.StartDate) || new Date();
+    const finishDate = this.parseDate(record.pme_finishdate || record.FinishDate) || new Date(startDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+    
+    // Parse duration from your exact column name
+    const duration = this.parseDuration(record.pme_duration || record.Duration) || this.calculateDuration(startDate, finishDate);
+    
+    // Parse progress from your exact column name (PercentComplete as whole number 0-100)
+    const progress = this.parsePercentComplete(record.pme_percentcomplete || record.PercentComplete);
+    
+    // Get task phase
+    const taskPhase = this.mapTaskPhase(record.pme_taskphase || record.taskphase) || this.determinePhaseFromName(taskName);
+    
+    // Determine if this is a summary task
+    const isSummaryTask = record.pme_issummarytask || this.hasPotentialChildren(record, index);
     
     // Get task index for sorting
     const taskIndex = record.pme_taskindex || record.taskindex || index;
@@ -268,42 +282,36 @@ export class DataverseService {
     console.log(`Transform record ${index}: 
       taskId=${taskId}, 
       taskName=${taskName}
+      startDate=${startDate.toISOString().split('T')[0]},
+      finishDate=${finishDate.toISOString().split('T')[0]},
+      duration=${duration} days,
+      progress=${Math.round(progress * 100)}%,
+      taskPhase=${taskPhase},
       isSummaryTask=${isSummaryTask}, 
       parentTask=${parentTask}, 
-      taskIndex=${taskIndex},
-      successor=${successor},
-      successorUID=${successorUID},
-      dependencyType=${dependencyType}`);
-    
-    // Debug: Show available fields in raw record
-    if (index < 3) {
-      console.log(`Available fields in record ${index}:`, Object.keys(record));
-    }
+      taskIndex=${taskIndex}`);
     
     return {
-      taskNumber: `${index + 1}`,
+      taskWBS: taskWBS,
+      taskNumber: record.pme_tasknumber || `${index + 1}`,
       taskDataId: taskId,
       taskName: taskName,
-      
-      // Assign phases based on task names for better visualization
-      taskPhase: this.determinePhaseFromName(taskName),
-      
+      taskPhase: taskPhase,
       startDate: startDate,
       finishDate: finishDate,
+      duration: duration,
+      progress: progress,
       
-      projectId: 'Penumbra-Project',
-      projectUID: 'penumbra-project-uid',
+      // Handle project fields - pme_projectid might also be a lookup
+      projectId: this.getLookupValue(record, 'pme_projectid') || 'Project-001',
+      projectUID: record.pme_projectuid || `project-uid-${taskId}`,
       
-      dependencyType: dependencyType as 'StartToStart' | 'FinishToStart' | 'FinishToFinish' | 'StartToFinish' | undefined,
+      dependencyType: this.mapDependencyType(dependencyType),
       successor: successor,
       successorUID: successorUID,
       
       isSummaryTask: isSummaryTask,
       parentTask: parentTask,
-      
-      duration: 14, // Default duration
-      progress: this.generateProgressBasedOnPhase(taskName),
-      
       taskIndex: taskIndex
     };
   }
@@ -385,6 +393,39 @@ export class DataverseService {
 
 
   /**
+   * Parse duration value from Dataverse (expects decimal number in days)
+   */
+  private parseDuration(durationValue: any): number {
+    if (durationValue === null || durationValue === undefined) {
+      return 1; // Default 1 day duration
+    }
+    
+    const numValue = parseFloat(durationValue);
+    if (isNaN(numValue) || numValue <= 0) {
+      return 1; // Default 1 day for invalid values
+    }
+    
+    return Math.max(1, Math.round(numValue)); // Ensure at least 1 day, rounded to whole number
+  }
+
+  /**
+   * Parse PercentComplete value from Dataverse (expects whole number 0-100)
+   */
+  private parsePercentComplete(percentValue: any): number {
+    if (percentValue === null || percentValue === undefined) {
+      return 0; // Default 0% progress
+    }
+    
+    const numValue = parseFloat(percentValue);
+    if (isNaN(numValue)) {
+      return 0;
+    }
+    
+    // PercentComplete is stored as whole number (0-100), convert to decimal (0-1)
+    return Math.max(0, Math.min(100, numValue)) / 100;
+  }
+
+  /**
    * Parse progress value (handle percentage or decimal)
    */
   private parseProgress(progressValue: any): number {
@@ -403,6 +444,24 @@ export class DataverseService {
     }
     
     return Math.min(numValue, 1);
+  }
+
+  /**
+   * Helper method to get lookup field value (handles both _fieldname_value and fieldname)
+   */
+  private getLookupValue(record: any, fieldName: string): any {
+    // Try navigation property first (_fieldname_value)
+    const navigationProperty = `_${fieldName}_value`;
+    if (record[navigationProperty] !== undefined && record[navigationProperty] !== null) {
+      return record[navigationProperty];
+    }
+    
+    // Fall back to direct field name
+    if (record[fieldName] !== undefined && record[fieldName] !== null) {
+      return record[fieldName];
+    }
+    
+    return null;
   }
 
   /**
@@ -510,7 +569,7 @@ export class DataverseService {
   public async fetchTaskDataById(id: string): Promise<TaskData | null> {
     try {
       const entityName = "pme_taskdatas";
-      const query = `?$select=pme_tasknumber,pme_taskdataid,pme_taskname,pme_taskphase,pme_startdate,pme_finishdate,pme_projectid,pme_projectuid,pme_dependencytype,pme_successor,pme_successoruid`;
+      const query = `?$select=pme_tasknumber,pme_taskdataid,pme_taskname,pme_taskphase,pme_startdate,pme_finishdate,_pme_projectid_value,pme_projectuid,pme_dependencytype,_pme_successor_value,pme_successoruid`;
       
       const record = await this.context.webAPI.retrieveRecord(
         entityName,
@@ -519,16 +578,17 @@ export class DataverseService {
       );
 
       return {
+        taskWBS: record.pme_taskwbs || '',
         taskNumber: record.pme_tasknumber || '',
         taskDataId: record.pme_taskdataid || record[entityName + 'id'],
         taskName: record.pme_taskname || '',
         taskPhase: this.mapTaskPhase(record.pme_taskphase),
         startDate: record.pme_startdate ? new Date(record.pme_startdate) : new Date(),
         finishDate: record.pme_finishdate ? new Date(record.pme_finishdate) : new Date(),
-        projectId: record.pme_projectid || '',
+        projectId: this.getLookupValue(record, 'pme_projectid') || '',
         projectUID: record.pme_projectuid || '',
         dependencyType: this.mapDependencyType(record.pme_dependencytype),
-        successor: record.pme_successor || undefined,
+        successor: this.getLookupValue(record, 'pme_successor') || undefined,
         successorUID: record.pme_successoruid || undefined,
         duration: this.calculateDuration(
           record.pme_startdate ? new Date(record.pme_startdate) : new Date(),

@@ -11,6 +11,7 @@ export const projectPhases = [
 export const staticTaskData: TaskData[] = [
   // LEVEL 1: Main Project Groups
   {
+    taskWBS: "1",
     taskNumber: "1",
     taskDataId: "project-phase-1",
     taskName: "General Conditions & Setup",

@@ -42,28 +42,29 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
   }
 
   private fixHierarchyIssues = (tasks: TaskData[]): TaskData[] => {
-    console.log('=== Fixing Hierarchy Issues ===');
+    console.log('=== Processing Hierarchy from Data Relationships ===');
     console.log('Raw task data sample (first 3):', tasks.slice(0, 3).map(t => ({
       id: t.taskDataId,
       name: t.taskName,
       parentTask: t.parentTask,
-      isSummaryTask: t.isSummaryTask
+      isSummaryTask: t.isSummaryTask,
+      taskIndex: t.taskIndex
     })));
     
-    // First, let's check what parent relationships exist in the raw data
+    // Check what parent relationships exist in the raw data
     const tasksWithParents = tasks.filter(t => t.parentTask);
     console.log(`Tasks with parentTask field: ${tasksWithParents.length}`);
     console.log('Sample parent relationships:', tasksWithParents.slice(0, 5).map(t => ({
       id: t.taskDataId,
       name: t.taskName,
-      parent: t.parentTask
+      parent: t.parentTask,
+      taskIndex: t.taskIndex
     })));
     
-    // If no parent relationships exist in the data, let's create a logical hierarchy
-    // based on task names and common patterns
+    // If no parent relationships exist in the data, return tasks as-is
     if (tasksWithParents.length === 0) {
-      console.log('No parent relationships found in data. Creating logical hierarchy based on task names...');
-      return this.createLogicalHierarchy(tasks);
+      console.log('No parent relationships found in data. Using tasks as-is without artificial grouping...');
+      return this.createDynamicHierarchy(tasks);
     }
     
     // Find all referenced parent IDs
@@ -85,42 +86,52 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
     console.log('Existing task IDs:', Array.from(existingTaskIds).slice(0, 10), '...');
     console.log('Missing parent IDs:', missingParentIds);
     
-    // Create missing parent tasks
+    // Only create missing parent tasks if they are actually referenced
     const createdParents: TaskData[] = missingParentIds.map((parentId, index) => {
       console.log(`Creating missing parent task: ${parentId}`);
       
-      // Try to infer parent name from children
+      // Get all children of this missing parent
       const children = tasks.filter(t => t.parentTask === parentId);
-      let parentName = `Parent Group ${index + 1}`;
       
+      // Use the earliest taskIndex from children for the parent
+      const parentTaskIndex = Math.min(...children.map(t => t.taskIndex || 999999));
+      
+      // Calculate parent dates and properties based on children
+      const childStartDates = children.map(t => t.startDate);
+      const childEndDates = children.map(t => t.finishDate);
+      const parentStart = new Date(Math.min(...childStartDates.map(d => d.getTime())));
+      const parentEnd = new Date(Math.max(...childEndDates.map(d => d.getTime())));
+      
+      // Infer parent name from first child or use a generic name
+      let parentName = `Parent Group ${index + 1}`;
       if (children.length > 0) {
-        // Use common prefix or pattern from children names
-        const firstChildName = children[0].taskName;
-        if (firstChildName.includes('Submission')) {
-          parentName = firstChildName.split(' ')[0] + ' Regulatory Process';
-        } else if (firstChildName.includes('Technical')) {
-          parentName = 'Technical Sections';
+        const firstChild = children[0];
+        // Try to create a meaningful name from the child task
+        const words = firstChild.taskName.split(' ');
+        if (words.length > 1) {
+          parentName = words.slice(0, Math.min(2, words.length)).join(' ') + ' Group';
         } else {
-          parentName = `${firstChildName.split(' ')[0]} Group`;
+          parentName = firstChild.taskName + ' Group';
         }
       }
       
       return {
-        taskNumber: `P${index + 1}`,
+        taskNumber: `P${parentTaskIndex}`,
         taskDataId: parentId,
         taskName: parentName,
-        taskPhase: 'Planning' as const,
-        startDate: new Date(),
-        finishDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        taskPhase: children.length > 0 ? children[0].taskPhase : 'Planning' as const,
+        startDate: parentStart,
+        finishDate: parentEnd,
         projectId: children.length > 0 ? children[0].projectId : 'Default-Project',
         projectUID: children.length > 0 ? children[0].projectUID : 'default-project-uid',
         dependencyType: undefined,
         successor: undefined,
         successorUID: undefined,
-        duration: 30,
-        progress: 0.5,
+        duration: Math.round((parentEnd.getTime() - parentStart.getTime()) / (1000 * 60 * 60 * 24)),
+        progress: children.reduce((sum, t) => sum + (t.progress || 0), 0) / children.length,
         isSummaryTask: true,
-        parentTask: undefined // These are root level parents
+        parentTask: undefined, // These are missing parents, so they become root level
+        taskIndex: parentTaskIndex // Use the earliest child's taskIndex
       };
     });
     
@@ -135,121 +146,102 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
     });
     
     const result = [...createdParents, ...updatedTasks];
-    console.log(`Fixed hierarchy: added ${createdParents.length} missing parents, total tasks: ${result.length}`);
+    console.log(`Processed hierarchy: added ${createdParents.length} missing parents, total tasks: ${result.length}`);
+    
+    // Debug: Show the hierarchy structure
+    const finalParentTasks = result.filter(t => t.isSummaryTask);
+    const finalChildTasks = result.filter(t => t.parentTask);
+    const finalRootTasks = result.filter(t => !t.parentTask);
+    
+    console.log(`Final hierarchy structure:
+      - Root tasks (no parent): ${finalRootTasks.length}
+      - Summary tasks (have children): ${finalParentTasks.length}  
+      - Child tasks (have parent): ${finalChildTasks.length}`);
     
     return result;
   };
 
-  private createLogicalHierarchy = (tasks: TaskData[]): TaskData[] => {
-    console.log('Creating logical hierarchy from task names...');
+  private createDynamicHierarchy = (tasks: TaskData[]): TaskData[] => {
+    console.log('Creating dynamic hierarchy based on parentTask relationships and taskIndex...');
     
-    // Group tasks by common patterns in their names
-    const groups: { [key: string]: TaskData[] } = {};
-    const standaloneItems: TaskData[] = [];
+    // Simply return the tasks as-is, since the hierarchy should be based on actual data relationships
+    // No artificial grouping or parent creation needed
+    const processedTasks = tasks.map(task => ({
+      ...task,
+      // Ensure isSummaryTask is properly set based on whether this task has children
+      isSummaryTask: tasks.some(t => t.parentTask === task.taskDataId)
+    }));
     
-    // Define grouping patterns and their parent names
-    const groupPatterns: { [key: string]: { pattern: RegExp, parentName: string, phase: TaskData['taskPhase'] } } = {
-      'csfs': { pattern: /\d{4}\s+CSFs?/i, parentName: 'Critical Success Factors', phase: 'Planning' },
-      'submission': { pattern: /(US|EU)\s+Submission/i, parentName: 'Regulatory Submissions', phase: 'Selection' },
-      'studies': { pattern: /(Studies|Study)/i, parentName: 'Clinical Studies', phase: 'Execution' },
-      'technical': { pattern: /Tech(nical)?\s+Section/i, parentName: 'Technical Sections', phase: 'Selection' },
-      'phase': { pattern: /(Development|Registration|Submission)\s+Phase/i, parentName: 'Project Phases', phase: 'Planning' },
-      'timeline': { pattern: /Timeline/i, parentName: 'Project Timelines', phase: 'Planning' },
-      'gates': { pattern: /(Gate|Milestone)/i, parentName: 'Gates and Milestones', phase: 'Planning' }
+    console.log(`Dynamic hierarchy created:
+      - Total tasks: ${processedTasks.length}
+      - Summary tasks: ${processedTasks.filter(t => t.isSummaryTask).length}
+      - Child tasks: ${processedTasks.filter(t => t.parentTask).length}
+      - Root tasks: ${processedTasks.filter(t => !t.parentTask).length}`);
+    
+    return processedTasks;
+  };
+
+  private sortTasksRespectingHierarchy = (tasks: TaskData[]): TaskData[] => {
+    console.log('=== Sorting Tasks Respecting Hierarchy and TaskIndex ===');
+    
+    // Build a map for quick parent-child lookups
+    const taskMap = new Map<string, TaskData>();
+    const childrenMap = new Map<string, TaskData[]>();
+    
+    tasks.forEach(task => {
+      taskMap.set(task.taskDataId, task);
+    });
+    
+    // Group children under their parents
+    tasks.forEach(task => {
+      if (task.parentTask) {
+        if (!childrenMap.has(task.parentTask)) {
+          childrenMap.set(task.parentTask, []);
+        }
+        childrenMap.get(task.parentTask)!.push(task);
+      }
+    });
+    
+    // Sort children by taskIndex for each parent
+    childrenMap.forEach((children, parentId) => {
+      children.sort((a, b) => {
+        if (a.taskIndex !== undefined && b.taskIndex !== undefined) {
+          return a.taskIndex - b.taskIndex;
+        }
+        return a.taskDataId.localeCompare(b.taskDataId);
+      });
+    });
+    
+    // Get root tasks (no parent) and sort them by taskIndex
+    const rootTasks = tasks
+      .filter(task => !task.parentTask)
+      .sort((a, b) => {
+        if (a.taskIndex !== undefined && b.taskIndex !== undefined) {
+          return a.taskIndex - b.taskIndex;
+        }
+        return a.taskDataId.localeCompare(b.taskDataId);
+      });
+    
+    // Recursively build the sorted list
+    const sortedTasks: TaskData[] = [];
+    
+    const addTaskAndChildren = (task: TaskData) => {
+      sortedTasks.push(task);
+      const children = childrenMap.get(task.taskDataId) || [];
+      children.forEach(child => addTaskAndChildren(child));
     };
     
-    // Group tasks based on patterns
-    tasks.forEach(task => {
-      let grouped = false;
-      
-      for (const [groupKey, { pattern, parentName }] of Object.entries(groupPatterns)) {
-        if (pattern.test(task.taskName)) {
-          if (!groups[groupKey]) {
-            groups[groupKey] = [];
-          }
-          groups[groupKey].push({
-            ...task,
-            isSummaryTask: false, // These become child tasks
-            parentTask: `parent-${groupKey}` // Assign parent ID
-          });
-          grouped = true;
-          break;
-        }
-      }
-      
-      if (!grouped) {
-        standaloneItems.push({
-          ...task,
-          isSummaryTask: false,
-          parentTask: undefined
-        });
-      }
-    });
+    rootTasks.forEach(rootTask => addTaskAndChildren(rootTask));
     
-    // Create parent tasks for each group
-    const parentTasks: TaskData[] = [];
-    Object.entries(groups).forEach(([groupKey, groupTasks]) => {
-      if (groupTasks.length > 0) {
-        const { parentName, phase } = groupPatterns[groupKey];
-        
-        // Calculate parent dates based on children
-        const childStartDates = groupTasks.map(t => t.startDate);
-        const childEndDates = groupTasks.map(t => t.finishDate);
-        const parentStart = new Date(Math.min(...childStartDates.map(d => d.getTime())));
-        const parentEnd = new Date(Math.max(...childEndDates.map(d => d.getTime())));
-        
-        parentTasks.push({
-          taskNumber: `GRP-${groupKey.toUpperCase()}`,
-          taskDataId: `parent-${groupKey}`,
-          taskName: parentName,
-          taskPhase: phase,
-          startDate: parentStart,
-          finishDate: parentEnd,
-          projectId: groupTasks[0].projectId,
-          projectUID: groupTasks[0].projectUID,
-          dependencyType: undefined,
-          successor: undefined,
-          successorUID: undefined,
-          duration: Math.round((parentEnd.getTime() - parentStart.getTime()) / (1000 * 60 * 60 * 24)),
-          progress: groupTasks.reduce((sum, t) => sum + (t.progress || 0), 0) / groupTasks.length,
-          isSummaryTask: true,
-          parentTask: undefined,
-          taskIndex: Math.min(...groupTasks.map(t => t.taskIndex || 0))
-        });
-      }
-    });
+    console.log(`Sorted ${sortedTasks.length} tasks respecting hierarchy and taskIndex`);
+    console.log('First 5 sorted tasks:', sortedTasks.slice(0, 5).map(t => ({
+      taskIndex: t.taskIndex,
+      taskName: t.taskName,
+      parentTask: t.parentTask,
+      isSummaryTask: t.isSummaryTask
+    })));
     
-    const result = [...parentTasks, ...Object.values(groups).flat(), ...standaloneItems];
-    
-    console.log(`Created logical hierarchy:
-      - Parent groups: ${parentTasks.length}
-      - Child tasks: ${Object.values(groups).flat().length}
-      - Standalone tasks: ${standaloneItems.length}
-      - Total: ${result.length}`);
-    
-    console.log('Created parent groups:', parentTasks.map(p => p.taskName));
-    
-    return result;
-  };
-
-  private sortTasksForHierarchy = (tasks: TaskData[]): TaskData[] => {
-    const parentTasks = tasks.filter(t => t.isSummaryTask);
-    const childTasks = tasks.filter(t => t.parentTask);
-    const standaloneTasks = tasks.filter(t => !t.isSummaryTask && !t.parentTask);
-    
-    const result: TaskData[] = [];
-    
-    // Add each parent followed by its children
-    parentTasks.forEach(parent => {
-      result.push(parent);
-      const children = childTasks.filter(child => child.parentTask === parent.taskDataId);
-      result.push(...children);
-    });
-    
-    // Add standalone tasks at the end
-    result.push(...standaloneTasks);
-    
-    return result;
+    return sortedTasks;
   };
 
   private loadDataAndInitializeGantt = async (): Promise<void> => {
@@ -261,24 +253,8 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       // Fix hierarchy issues and create missing parent tasks
       const fixedTaskData = this.fixHierarchyIssues(taskData);
       
-      // Sort tasks by taskIndex field
-      const sortedTaskData = fixedTaskData.sort((a, b) => {
-        // Primary sort: by taskIndex if available
-        if (a.taskIndex !== undefined && b.taskIndex !== undefined) {
-          return a.taskIndex - b.taskIndex;
-        }
-        
-        // Secondary sort: by taskNumber if it contains numeric values
-        const aNum = parseInt(a.taskNumber?.replace(/\D/g, '') || '0');
-        const bNum = parseInt(b.taskNumber?.replace(/\D/g, '') || '0');
-        
-        if (aNum !== bNum) {
-          return aNum - bNum;
-        }
-        
-        // Fallback sort: by taskDataId
-        return a.taskDataId.localeCompare(b.taskDataId);
-      });
+      // Sort tasks respecting hierarchy and taskIndex
+      const sortedTaskData = this.sortTasksRespectingHierarchy(fixedTaskData);
       
       // Count parent vs child tasks for debugging
       const parentTasks = sortedTaskData.filter(t => t.isSummaryTask);
@@ -393,24 +369,8 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       // Fix hierarchy issues and create missing parent tasks
       const fixedTaskData = this.fixHierarchyIssues(taskData);
       
-      // Sort tasks by taskIndex field
-      const sortedTaskData = fixedTaskData.sort((a, b) => {
-        // Primary sort: by taskIndex if available
-        if (a.taskIndex !== undefined && b.taskIndex !== undefined) {
-          return a.taskIndex - b.taskIndex;
-        }
-        
-        // Secondary sort: by taskNumber if it contains numeric values
-        const aNum = parseInt(a.taskNumber?.replace(/\D/g, '') || '0');
-        const bNum = parseInt(b.taskNumber?.replace(/\D/g, '') || '0');
-        
-        if (aNum !== bNum) {
-          return aNum - bNum;
-        }
-        
-        // Fallback sort: by taskDataId
-        return a.taskDataId.localeCompare(b.taskDataId);
-      });
+      // Sort tasks respecting hierarchy and taskIndex
+      const sortedTaskData = this.sortTasksRespectingHierarchy(fixedTaskData);
       
       // Get cache stats
       const cacheStats = this.dataverseService.getCacheStats();
