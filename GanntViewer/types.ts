@@ -15,7 +15,8 @@ export interface TaskData {
   duration?: number;
   progress?: number;
   isSummaryTask?: boolean; // New field: indicates if this is a parent/group task
-  parentTask?: string; // New field: ID of the parent task (for child tasks)
+  parentTask?: string; // New field: ID of the parent task (for child tasks) - DEPRECATED
+  pme_parenttaskuid?: string; // Actual field from Dataverse for parent task GUID
   taskIndex?: number; // New field for ordering
   isMilestone?: boolean; // New field: indicates if this is a milestone task (displays as diamond)
 }

@@ -4,6 +4,7 @@ import { projectPhases, staticTaskData } from './data';
 import { DataverseService } from './DataverseService';
 import { ImprovedGanttChart } from './ImprovedGanttChart';
 import { IInputs } from './generated/ManifestTypes';
+import GanttTimelineShimmer from './shimmerdEffect';
 
 export interface IGanttChartProps {
   height?: string;
@@ -13,7 +14,8 @@ export interface IGanttChartProps {
 
 interface IGanttChartState {
   currentZoom: string;
-  isLoading: boolean;                                                                        
+  isLoading: boolean;
+  isRefreshing: boolean; // Separate state for refresh operations                                                                     
   taskData: TaskData[];
   error: string | null;
   totalRecords: number;
@@ -27,7 +29,8 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
     super(props);
     this.state = {
       currentZoom: 'Days',
-      isLoading: true, // Set to true since we're loading from Dataverse                                                                                                                                                                                                      
+      isLoading: true, // Set to true since we're loading from Dataverse
+      isRefreshing: false, // Initially not refreshing                                                                                                                                                                                                      
       taskData: [],
       error: null,
       totalRecords: 0,
@@ -72,12 +75,6 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       taskIndex: t.taskIndex
     })));
     
-    // If no parent relationships exist in the data, return tasks as-is
-    if (tasksWithParents.length === 0) {
-      console.log('No parent relationships found in data. Using tasks as-is without artificial grouping...');
-      return this.createDynamicHierarchy(tasks);
-    }
-    
     // Find all referenced parent IDs
     const referencedParentIds = new Set(
       tasks
@@ -97,79 +94,39 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
     console.log('Existing task IDs:', Array.from(existingTaskIds).slice(0, 10), '...');
     console.log('Missing parent IDs:', missingParentIds);
     
-    // Only create missing parent tasks if they are actually referenced
-    const createdParents: TaskData[] = missingParentIds.map((parentId, index) => {
-      console.log(`Creating missing parent task: ${parentId}`);
-      
-      // Get all children of this missing parent
-      const children = tasks.filter(t => t.parentTask === parentId);
-      
-      // Use the earliest taskIndex from children for the parent
-      const parentTaskIndex = Math.min(...children.map(t => t.taskIndex || 999999));
-      
-      // Calculate parent dates and properties based on children
-      const childStartDates = children.map(t => t.startDate);
-      const childEndDates = children.map(t => t.finishDate);
-      const parentStart = new Date(Math.min(...childStartDates.map(d => d.getTime())));
-      const parentEnd = new Date(Math.max(...childEndDates.map(d => d.getTime())));
-      
-      // Infer parent name from first child or use a generic name
-      let parentName = `Parent Group ${index + 1}`;
-      if (children.length > 0) {
-        const firstChild = children[0];
-        // Try to create a meaningful name from the child task
-        const words = firstChild.taskName.split(' ');
-        if (words.length > 1) {
-          parentName = words.slice(0, Math.min(2, words.length)).join(' ') + ' Group';
-        } else {
-          parentName = firstChild.taskName + ' Group';
-        }
+    // Instead of removing orphaned parent references, treat tasks with missing parents as root tasks
+    // This ensures all tasks are kept in the hierarchy
+    const cleanedTasks = tasks.map(task => {
+      if (task.parentTask && missingParentIds.includes(task.parentTask)) {
+        console.log(`Converting task to root (missing parent): ${task.taskName} (parent ${task.parentTask} does not exist)`);
+        return { ...task, parentTask: undefined };
       }
-      
-      return {
-        taskNumber: `P${parentTaskIndex}`,
-        taskDataId: parentId,
-        taskName: parentName,
-        taskPhase: children.length > 0 ? children[0].taskPhase : 'Planning' as const,
-        startDate: parentStart,
-        finishDate: parentEnd,
-        projectId: children.length > 0 ? children[0].projectId : 'Default-Project',
-        projectUID: children.length > 0 ? children[0].projectUID : 'default-project-uid',
-        dependencyType: undefined,
-        successor: undefined,
-        successorUID: undefined,
-        duration: Math.round((parentEnd.getTime() - parentStart.getTime()) / (1000 * 60 * 60 * 24)),
-        progress: children.reduce((sum, t) => sum + (t.progress || 0), 0) / children.length,
-        isSummaryTask: true,
-        parentTask: undefined, // These are missing parents, so they become root level
-        taskIndex: parentTaskIndex // Use the earliest child's taskIndex
-      };
+      return task;
     });
     
     // Mark tasks that have children as summary tasks
-    const updatedTasks = tasks.map(task => {
-      const hasChildren = tasks.some(t => t.parentTask === task.taskDataId);
+    const updatedTasks = cleanedTasks.map(task => {
+      const hasChildren = cleanedTasks.some(t => t.parentTask === task.taskDataId);
       if (hasChildren && !task.isSummaryTask) {
-        console.log(`Marking task as summary: ${task.taskName} (has ${tasks.filter(t => t.parentTask === task.taskDataId).length} children)`);
+        console.log(`Marking task as summary: ${task.taskName} (has ${cleanedTasks.filter(t => t.parentTask === task.taskDataId).length} children)`);
         return { ...task, isSummaryTask: true };
       }
       return task;
     });
     
-    const result = [...createdParents, ...updatedTasks];
-    console.log(`Processed hierarchy: added ${createdParents.length} missing parents, total tasks: ${result.length}`);
+    console.log(`Processed hierarchy: cleaned invalid parent references, total tasks: ${updatedTasks.length}`);
     
     // Debug: Show the hierarchy structure
-    const finalParentTasks = result.filter(t => t.isSummaryTask);
-    const finalChildTasks = result.filter(t => t.parentTask);
-    const finalRootTasks = result.filter(t => !t.parentTask);
+    const finalParentTasks = updatedTasks.filter(t => t.isSummaryTask);
+    const finalChildTasks = updatedTasks.filter(t => t.parentTask);
+    const finalRootTasks = updatedTasks.filter(t => !t.parentTask);
     
     console.log(`Final hierarchy structure:
       - Root tasks (no parent): ${finalRootTasks.length}
       - Summary tasks (have children): ${finalParentTasks.length}  
       - Child tasks (have parent): ${finalChildTasks.length}`);
     
-    return result;
+    return updatedTasks;
   };
 
   private createDynamicHierarchy = (tasks: TaskData[]): TaskData[] => {
@@ -378,7 +335,7 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
 
   private refreshData = async (): Promise<void> => {
     try {
-      this.setState({ isLoading: true, error: null });
+      this.setState({ isRefreshing: true, error: null });
       
       console.log('Refreshing data from Dataverse...');
       
@@ -400,7 +357,7 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       
       this.setState({
         taskData: sortedTaskData,
-        isLoading: false,
+        isRefreshing: false,
         totalRecords: sortedTaskData.length,
         cacheStats: cacheStats
       });
@@ -410,7 +367,7 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
       console.error('Error refreshing data:', error);
       this.setState({
         error: `Failed to refresh data: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        isLoading: false
+        isRefreshing: false
       });
     }
   };
@@ -423,27 +380,19 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
 
   public render(): React.ReactNode {
     const { height = '500px', width = '100%' } = this.props;
-    const { isLoading, error, taskData, totalRecords, cacheStats } = this.state;
+    const { isLoading, isRefreshing, error, taskData, totalRecords, cacheStats } = this.state;
     
     // Get current projectId for display
     const currentProjectId = this.props.context.parameters.projectId?.raw;
 
     if (isLoading) {
       return (
-        <div style={{ 
-          width, 
-          height, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          backgroundColor: '#f5f5f5'
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>Loading TaskData...</div>
-            <div style={{ fontSize: '14px', color: '#666' }}>
-              {currentProjectId ? `Filtering by Project: ${currentProjectId}` : 'Loading all projects'}
-            </div>
-          </div>
+        <div style={{ width, height, minWidth: '1200px', overflow: 'auto' }}>
+          <GanttTimelineShimmer 
+            rowCount={12} 
+            yearCount={4} 
+            isOverlay={false}
+          />
         </div>
       );
     }
@@ -481,66 +430,6 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
 
     return (
       <div style={{ width: '100%', height, minWidth: '1200px', overflow: 'auto' }}>
-        {/* Header Controls */}
-        <div style={{ 
-          padding: '10px', 
-          borderBottom: '1px solid #ccc',
-          backgroundColor: '#f5f5f5',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          minWidth: '1200px'
-        }}>
-          <span style={{ fontWeight: 'bold', fontSize: '16px' }}>Project Management Gantt Chart - Power Apps</span>
-          
-          {/* Project Filter Display */}
-          {currentProjectId && (
-            <span style={{ 
-              marginLeft: '10px', 
-              fontSize: '12px', 
-              color: '#fff',
-              backgroundColor: '#007bff',
-              padding: '2px 8px',
-              borderRadius: '12px'
-            }}>
-              Project: {currentProjectId}
-            </span>
-          )}
-          
-          <span style={{ marginLeft: currentProjectId ? '10px' : '20px', fontSize: '12px', color: '#666' }}>
-            Total Tasks: {totalRecords}
-            {(() => {
-              const summaryTasks = taskData.filter(t => t.isSummaryTask).length;
-              const childTasks = taskData.filter(t => t.parentTask).length;
-              return ` | Summary: ${summaryTasks} | Children: ${childTasks}`;
-            })()}
-            {cacheStats && (
-              <span style={{ marginLeft: '10px', fontStyle: 'italic' }}>
-                | Cache: {cacheStats.cachedPages} pages
-              </span>
-            )}
-          </span>
-          
-          {/* Refresh Button */}
-          <button
-            onClick={this.refreshData}
-            disabled={isLoading}
-            style={{
-              marginLeft: '10px',
-              padding: '5px 10px',
-              border: '1px solid #28a745',
-              backgroundColor: isLoading ? '#f0f0f0' : '#28a745',
-              color: isLoading ? '#999' : '#fff',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              borderRadius: '3px',
-              fontSize: '12px'
-            }}
-            title="Refresh all data from Dataverse"
-          >
-            🔄 Refresh All Data
-          </button>
-        </div>
-
         {/* Phase legend */}
         <div style={{ 
           padding: '10px', 
@@ -548,22 +437,47 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
           backgroundColor: '#f9f9f9',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
           gap: '15px',
           flexWrap: 'wrap',
           minWidth: '1200px'
         }}>
-          <span style={{ fontWeight: 'bold' }}>Phases:</span>
-          {projectPhases.map(phase => (
-            <div key={phase.id} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{
-                width: '12px',
-                height: '12px',
-                backgroundColor: phase.color,
-                borderRadius: '2px'
-              }}></div>
-              <span style={{ fontSize: '12px' }}>{phase.name}</span>
-            </div>
-          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 'bold' }}>Phases:</span>
+            {projectPhases.map(phase => (
+              <div key={phase.id} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <div style={{
+                  width: '12px',
+                  height: '12px',
+                  backgroundColor: phase.color,
+                  borderRadius: '2px'
+                }}></div>
+                <span style={{ fontSize: '12px' }}>{phase.name}</span>
+              </div>
+            ))}
+          </div>
+          
+          {/* Refresh Button */}
+          <button
+            onClick={this.refreshData}
+            disabled={isRefreshing}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #007bff',
+              backgroundColor: isRefreshing ? '#f0f0f0' : '#007bff',
+              color: isRefreshing ? '#999' : '#fff',
+              cursor: isRefreshing ? 'not-allowed' : 'pointer',
+              borderRadius: '4px',
+              fontSize: '12px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
+            title="Refresh data from Dataverse"
+          >
+            {isRefreshing ? '🔄 Refreshing...' : '🔄 Refresh'}
+          </button>
         </div>
 
         {/* Custom Gantt Chart */}
@@ -573,6 +487,7 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
         }}>
           <ImprovedGanttChart 
             tasks={taskData}
+            isLoading={isRefreshing} // Show shimmer overlay during refresh
             onTaskClick={(task: TaskData) => {
               console.log('Task clicked:', task.taskName);
             }}

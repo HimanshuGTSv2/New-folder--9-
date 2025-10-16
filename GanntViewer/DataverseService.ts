@@ -255,7 +255,7 @@ export class DataverseService {
     const taskId = record.pme_taskdataid || record.id || `task-${index}`;
     
     // Get TaskWBS - the new Index Column (fallback to taskNumber if not available)
-    const taskWBS = record.pme_taskwbs || record.taskwbs || record.pme_tasknumber || `${index + 1}`;
+    const taskWBS = record.pme_taskwbs || record.taskwbs || `${index + 1}`;
     
     // Get task name - check multiple possible field names
     const taskName = record.pme_taskname || record.pme_name || record.name || `Task ${index + 1}`;

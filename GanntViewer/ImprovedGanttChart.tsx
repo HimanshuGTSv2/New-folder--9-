@@ -1,15 +1,17 @@
 import * as React from 'react';
 import { TaskData } from './types';
+import GanttTimelineShimmer from './shimmerdEffect';
 
 interface IImprovedGanttProps {
   tasks: TaskData[];
   onTaskClick?: (task: TaskData) => void;
   onExpandCollapse?: (taskId: string, expanded: boolean) => void;
+  isLoading?: boolean; // Optional loading state for overlay shimmer
 }
 
 interface IImprovedGanttState {
   expandedTasks: Set<string>;
-  zoomLevel: 'Day' | 'Week' | 'Month' | 'Quarter';
+  zoomLevel: 'Day' | 'Week' | 'Month' | 'Quarter' | 'Year';
   timelineStart: Date;
   timelineEnd: Date;
   timelineWidth: number;
@@ -23,7 +25,6 @@ interface IImprovedGanttState {
   cachedFlatHierarchy: TaskHierarchy[] | null;
   flatHierarchyCacheKey: string;
 }
-
 interface TaskHierarchy {
   task: TaskData;
   level: number;
@@ -233,11 +234,12 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       case 'Week': return Math.ceil(totalDays / 7) * 100; // 100px per week
       case 'Month': return Math.ceil(totalDays / 30) * 120; // 120px per month
       case 'Quarter': return Math.ceil(totalDays / 90) * 150; // 150px per quarter
+      case 'Year': return Math.ceil(totalDays / 365) * 200; // 200px per year
       default: return 1200;
     }
   };
 
-  private changeZoomLevel = (newZoom: 'Day' | 'Week' | 'Month' | 'Quarter') => {
+  private changeZoomLevel = (newZoom: 'Day' | 'Week' | 'Month' | 'Quarter' | 'Year') => {
     // Avoid unnecessary state updates
     if (this.state.zoomLevel === newZoom) return;
     
@@ -274,7 +276,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const containerWidth = mainContainer.clientWidth;
     
     // Only calculate horizontal scroll position - keep current vertical position
-    const gridWidth = 747; // Width of sticky columns
+    const gridWidth = 847; // Width of sticky columns
     const taskStartX = taskPosition.left + 20; // Add padding offset (where task actually starts in timeline)
     const taskCenterX = taskStartX + (taskPosition.width / 2);
     
@@ -577,7 +579,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
 
   private renderZoomControls = (): JSX.Element => {
     const { zoomLevel } = this.state;
-    const zoomOptions: ('Day' | 'Week' | 'Month' | 'Quarter')[] = ['Day', 'Week', 'Month', 'Quarter'];
+    const zoomOptions: ('Day' | 'Week' | 'Month' | 'Quarter' | 'Year')[] = ['Day', 'Week', 'Month', 'Quarter', 'Year'];
     
     return (
       <div style={{
@@ -750,7 +752,82 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
       );
     }
     
-    // Quarter view
+    if (zoomLevel === 'Year') {
+      const years: JSX.Element[] = [];
+      const current = new Date(timelineStart.getFullYear(), 0, 1); // Start from January 1st
+      const cellWidth = 200;
+      
+      while (current <= timelineEnd) {
+        const year = current.getFullYear();
+        
+        years.push(
+          <div key={current.toISOString()} style={{
+            ...cellStyle,
+            width: cellWidth,
+            height: headerHeight,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            {year}
+          </div>
+        );
+        
+        current.setFullYear(current.getFullYear() + 1);
+      }
+      
+      return (
+        <div style={{ 
+          display: 'flex', 
+          height: headerHeight,
+          backgroundColor: '#f8f9fa',
+          borderBottom: '2px solid #007bff'
+        }}>
+          {years}
+        </div>
+      );
+    }
+    
+    if (zoomLevel === 'Quarter') {
+      const quarters: JSX.Element[] = [];
+      const current = new Date(timelineStart.getFullYear(), Math.floor(timelineStart.getMonth() / 3) * 3, 1);
+      const cellWidth = 150;
+      
+      while (current <= timelineEnd) {
+        const quarter = Math.floor(current.getMonth() / 3) + 1;
+        const year = current.getFullYear();
+        
+        quarters.push(
+          <div key={current.toISOString()} style={{
+            ...cellStyle,
+            width: cellWidth,
+            height: headerHeight,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}>
+            Q{quarter} {year}
+          </div>
+        );
+        
+        current.setMonth(current.getMonth() + 3);
+      }
+      
+      return (
+        <div style={{ 
+          display: 'flex', 
+          height: headerHeight,
+          backgroundColor: '#f8f9fa',
+          borderBottom: '2px solid #007bff'
+        }}>
+          {quarters}
+        </div>
+      );
+    }
+    
+    // Default fallback (should not reach here)
     const quarters: JSX.Element[] = [];
     const current = new Date(timelineStart.getFullYear(), Math.floor(timelineStart.getMonth() / 3) * 3, 1);
     const cellWidth = 150;
@@ -967,6 +1044,17 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           alignItems: 'center'
         }}>
           {this.formatDate(task.startDate)}
+        </div>
+        
+        <div style={{ 
+          width: 100, 
+          padding: '6px 8px', 
+          borderRight: '1px solid #dee2e6',
+          fontSize: '13px',
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          {this.formatDate(task.finishDate)}
         </div>
         
         <div style={{ 
@@ -1267,6 +1355,15 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           Start Date
         </div>
         <div style={{ 
+          width: 100, 
+          padding: '12px 8px', 
+          borderRight: '1px solid #dee2e6',
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          Finish Date
+        </div>
+        <div style={{ 
           width: 80, 
           padding: '12px 8px', 
           borderRight: '1px solid #dee2e6',
@@ -1306,7 +1403,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const hierarchy = this.buildHierarchy();
     const visibleTasks = this.flattenHierarchy(hierarchy);
     const { timelineWidth } = this.state;
-    const gridWidth = 747; // Updated width for left grid (80 + 300 + 100 + 100 + 80 + 80 + 7 for borders)
+    const gridWidth = 847; // Updated width for left grid (80 + 300 + 100 + 100 + 100 + 80 + 80 + 7 for borders)
 
     // Debug logging
     console.log(`ImprovedGanttChart render: ${this.props.tasks.length} input tasks, ${hierarchy.length} hierarchy nodes, ${visibleTasks.length} visible tasks`);
@@ -1455,6 +1552,15 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
             </div>
           </div>
         </div>
+        
+        {/* Shimmer overlay when loading */}
+        {this.props.isLoading && (
+          <GanttTimelineShimmer 
+            isOverlay={true}
+            rowCount={visibleTasks.length || 10}
+            yearCount={4}
+          />
+        )}
       </div>
     );
   }
