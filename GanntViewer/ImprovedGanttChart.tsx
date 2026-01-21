@@ -25,6 +25,7 @@ interface IImprovedGanttState {
   cachedFlatHierarchy: TaskHierarchy[] | null;
   flatHierarchyCacheKey: string;
 }
+
 interface TaskHierarchy {
   task: TaskData;
   level: number;
@@ -55,11 +56,15 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     this.mainScrollRef = React.createRef();
     
     const { timelineStart, timelineEnd } = this.calculateTimelineBounds(props.tasks);
-    const defaultZoomLevel = 'Week';
+    const defaultZoomLevel = 'Year';
+    
+    // Expand first-level tasks (root tasks) by default
+    const firstLevelTasks = props.tasks.filter(t => !t.parentTask);
+    const initialExpandedTasks = new Set(firstLevelTasks.map(t => t.taskDataId));
     
     this.state = {
-      expandedTasks: new Set(), // Start with all dropdowns/groups closed by default
-      zoomLevel: defaultZoomLevel, // Default to Week view
+      expandedTasks: initialExpandedTasks, // Start with first-level tasks expanded by default
+      zoomLevel: defaultZoomLevel, // Default to Year view
       timelineStart,
       timelineEnd,
       timelineWidth: this.calculateTimelineWidthByZoom(defaultZoomLevel, timelineStart, timelineEnd),
