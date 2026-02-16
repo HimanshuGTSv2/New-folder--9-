@@ -286,9 +286,6 @@ export class DataverseService {
     // Parse progress from your exact column name (PercentComplete as whole number 0-100)
     const progress = this.parsePercentComplete(record.pme_percentcomplete || record.PercentComplete);
     
-    // Get task phase
-    const taskPhase = this.mapTaskPhase(record.pme_taskphase || record.taskphase) || this.determinePhaseFromName(taskName);
-    
     // Determine if this is a summary task
     const isSummaryTask = record.pme_issummarytask || this.hasPotentialChildren(record, index);
     
@@ -305,7 +302,6 @@ export class DataverseService {
       finishDate=${finishDate.toISOString().split('T')[0]},
       duration=${duration} days,
       progress=${Math.round(progress * 100)}%,
-      taskPhase=${taskPhase},
       isSummaryTask=${isSummaryTask}, 
       isMilestone=${isMilestone}, 
       parentTask=${parentTask}, 
@@ -316,7 +312,6 @@ export class DataverseService {
       taskNumber: record.pme_tasknumber || `${index + 1}`,
       taskDataId: taskId,
       taskName: taskName,
-      taskPhase: taskPhase,
       startDate: startDate,
       finishDate: finishDate,
       duration: duration,
@@ -338,39 +333,9 @@ export class DataverseService {
   }
 
   /**
-   * Determine task phase based on task name content
+   * Generate realistic progress based on task name
    */
-  private determinePhaseFromName(taskName: string): 'Initiation' | 'Planning' | 'Selection' | 'Execution' | 'Closure' {
-    const lowerName = taskName.toLowerCase();
-    
-    if (lowerName.includes('initiat') || lowerName.includes('start') || lowerName.includes('begin')) {
-      return 'Initiation';
-    }
-    if (lowerName.includes('plan') || lowerName.includes('design') || lowerName.includes('prepare')) {
-      return 'Planning';
-    }
-    if (lowerName.includes('submission') || lowerName.includes('submit') || lowerName.includes('review') || lowerName.includes('select')) {
-      return 'Selection';
-    }
-    if (lowerName.includes('execut') || lowerName.includes('implement') || lowerName.includes('complete') || lowerName.includes('conduct')) {
-      return 'Execution';
-    }
-    if (lowerName.includes('approval') || lowerName.includes('closure') || lowerName.includes('final') || lowerName.includes('decision')) {
-      return 'Closure';
-    }
-    
-    // Default based on common patterns
-    if (lowerName.includes('csf') || lowerName.includes('milestone') || lowerName.includes('gate')) {
-      return 'Planning';
-    }
-    
-    return 'Selection'; // Default
-  }
-
-  /**
-   * Generate realistic progress based on phase and task name
-   */
-  private generateProgressBasedOnPhase(taskName: string): number {
+  private generateProgressBasedOnTaskName(taskName: string): number {
     const lowerName = taskName.toLowerCase();
     
     // Completed tasks
@@ -508,51 +473,6 @@ export class DataverseService {
   }
 
   /**
-   * Map Dataverse choice value to TaskPhase
-   */
-  private mapTaskPhase(choiceValue: any): 'Initiation' | 'Planning' | 'Selection' | 'Execution' | 'Closure' {
-    if (!choiceValue) return 'Planning'; // Default if no value
-    
-    // Handle both numeric choice values and string values
-    if (typeof choiceValue === 'string') {
-      const lowerValue = choiceValue.toLowerCase();
-      if (lowerValue.includes('initiat')) return 'Initiation';
-      if (lowerValue.includes('plan')) return 'Planning';
-      if (lowerValue.includes('select')) return 'Selection';
-      if (lowerValue.includes('execut') || lowerValue.includes('implement')) return 'Execution';
-      if (lowerValue.includes('closur') || lowerValue.includes('complet')) return 'Closure';
-      
-      // Check for common task type patterns
-      if (lowerValue.includes('submission') || lowerValue.includes('submit')) return 'Selection';
-      if (lowerValue.includes('approval') || lowerValue.includes('review')) return 'Execution';
-      if (lowerValue.includes('admin')) return 'Closure';
-      
-      return 'Planning'; // Default for unrecognized strings
-    }
-    
-    // Handle numeric choice values
-    const numValue = parseInt(choiceValue);
-    switch (numValue) {
-      case 893360000: return 'Initiation';     // Blue
-      case 893360001: return 'Planning';       // Red  
-      case 893360002: return 'Selection';      // Orange
-      case 893360003: return 'Execution';      // Green
-      case 893360004: return 'Closure';        // Purple
-      
-      // Handle simple numeric mappings (1-5)
-      case 1: return 'Initiation';
-      case 2: return 'Planning';
-      case 3: return 'Selection';
-      case 4: return 'Execution';
-      case 5: return 'Closure';
-      
-      default: 
-        console.log(`Unknown task phase value: ${choiceValue} (type: ${typeof choiceValue})`);
-        return 'Planning'; // Default fallback
-    }
-  }
-
-  /**
    * Map Dataverse choice value to DependencyType
    */
   private mapDependencyType(choiceValue: number): 'StartToStart' | 'FinishToStart' | 'FinishToFinish' | 'StartToFinish' | undefined {
@@ -590,7 +510,7 @@ export class DataverseService {
   public async fetchTaskDataById(id: string): Promise<TaskData | null> {
     try {
       const entityName = "pme_taskdatas";
-      const query = `?$select=pme_tasknumber,pme_taskdataid,pme_taskname,pme_taskphase,pme_startdate,pme_finishdate,_pme_projectid_value,pme_projectuid,pme_dependencytype,_pme_successor_value,pme_successoruid`;
+      const query = `?$select=pme_tasknumber,pme_taskdataid,pme_taskname,pme_startdate,pme_finishdate,_pme_projectid_value,pme_projectuid,pme_dependencytype,_pme_successor_value,pme_successoruid`;
       
       const record = await this.context.webAPI.retrieveRecord(
         entityName,
@@ -603,7 +523,6 @@ export class DataverseService {
         taskNumber: record.pme_tasknumber || '',
         taskDataId: record.pme_taskdataid || record[entityName + 'id'],
         taskName: record.pme_taskname || '',
-        taskPhase: this.mapTaskPhase(record.pme_taskphase),
         startDate: record.pme_startdate ? new Date(record.pme_startdate) : new Date(),
         finishDate: record.pme_finishdate ? new Date(record.pme_finishdate) : new Date(),
         projectId: this.getLookupValue(record, 'pme_projectid') || '',

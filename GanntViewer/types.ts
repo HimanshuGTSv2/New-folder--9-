@@ -4,7 +4,6 @@ export interface TaskData {
   taskNumber: string;
   taskDataId: string;
   taskName: string;
-  taskPhase: 'Initiation' | 'Planning' | 'Selection' | 'Execution' | 'Closure';
   startDate: Date;
   finishDate: Date;
   projectId: string;

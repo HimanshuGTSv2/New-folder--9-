@@ -11,7 +11,6 @@ interface ICustomGanttState {
   expandedTasks: Set<string>;
   columnWidths: {
     taskName: number;
-    phase: number;
     startDate: number;
     duration: number;
     progress: number;
@@ -48,7 +47,6 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
       expandedTasks: new Set(props.tasks.filter(t => t.isSummaryTask).map(t => t.taskDataId)),
       columnWidths: {
         taskName: 280,
-        phase: 120,
         startDate: 120,
         duration: 100,
         progress: 100
@@ -242,16 +240,7 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
     }
   };
 
-  private getPhaseColor = (phase: string): string => {
-    switch (phase.toLowerCase()) {
-      case 'initiation': return '#3498db';
-      case 'planning': return '#e74c3c';
-      case 'selection': return '#f39c12';
-      case 'execution': return '#27ae60';
-      case 'closure': return '#9b59b6';
-      default: return '#95a5a6';
-    }
-  };
+
 
   private formatDate = (date: Date): string => {
     return date.toLocaleDateString('en-US', { 
@@ -303,9 +292,6 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
       }}>
         <div style={{ width: columnWidths.taskName, padding: '0 8px', borderRight: '1px solid #dee2e6' }}>
           Task Name
-        </div>
-        <div style={{ width: columnWidths.phase, padding: '0 8px', borderRight: '1px solid #dee2e6' }}>
-          Phase
         </div>
         <div style={{ width: columnWidths.startDate, padding: '0 8px', borderRight: '1px solid #dee2e6' }}>
           Start Date
@@ -368,17 +354,6 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
             color: task.isSummaryTask ? '#34495e' : '#495057'
           }}>
             {task.taskName}
-          </span>
-        </div>
-        <div style={{ width: columnWidths.phase, padding: '4px 8px', borderRight: '1px solid #dee2e6' }}>
-          <span style={{ 
-            backgroundColor: this.getPhaseColor(task.taskPhase),
-            color: 'white',
-            padding: '2px 6px',
-            borderRadius: '4px',
-            fontSize: '12px'
-          }}>
-            {task.taskPhase}
           </span>
         </div>
         <div style={{ width: columnWidths.startDate, padding: '4px 8px', borderRight: '1px solid #dee2e6' }}>
@@ -604,7 +579,7 @@ export class CustomGanttChart extends React.Component<ICustomGanttProps, ICustom
 
   private renderTimelineBar = (task: TaskData, index: number): JSX.Element => {
     const { left, width } = this.calculateTaskPosition(task);
-    const color = this.getPhaseColor(task.taskPhase);
+    const color = '#27ae60'; // Default green color
     
     // Debug: Log timeline bar rendering
     if (index < 3) {

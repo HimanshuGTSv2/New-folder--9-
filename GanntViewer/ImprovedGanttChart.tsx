@@ -516,17 +516,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     }
   };
 
-  private getPhaseColor = (phase: string): string => {
-    switch (phase.toLowerCase()) {
-      case 'initiation': return '#3498db';
-      case 'planning': return '#e74c3c';
-      case 'selection': return '#f39c12';
-      case 'execution': return '#27ae60';
-      case 'closure': return '#9b59b6';
-      default: return '#95a5a6';
-    }
-  };
-
   private calculateTaskPosition = (task: TaskData): { left: number; width: number } => {
     // Create cache key for memoization
     const cacheKey = `${task.taskDataId}-${task.startDate.getTime()}-${task.finishDate.getTime()}-${this.state.timelineWidth}-${this.state.timelineStart.getTime()}-${this.state.timelineEnd.getTime()}`;
@@ -1019,31 +1008,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           width: 100, 
           padding: '6px 8px', 
           borderRight: '1px solid #dee2e6',
-          display: 'flex',
-          alignItems: 'center'
-        }}>
-          <span style={{ 
-            backgroundColor: this.getPhaseColor(task.taskPhase),
-            color: 'white',
-            padding: '3px 8px',
-            borderRadius: '12px',
-            fontSize: '11px',
-            fontWeight: '500',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: '84px'
-          }}
-          title={task.taskPhase} // Show full phase name on hover
-          >
-            {task.taskPhase}
-          </span>
-        </div>
-        
-        <div style={{ 
-          width: 100, 
-          padding: '6px 8px', 
-          borderRight: '1px solid #dee2e6',
           fontSize: '13px',
           display: 'flex',
           alignItems: 'center'
@@ -1093,7 +1057,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
   private renderTimelineBar = (taskHierarchy: TaskHierarchy, index: number): JSX.Element => {
     const { task } = taskHierarchy;
     const { left, width } = this.calculateTaskPosition(task);
-    const color = this.getPhaseColor(task.taskPhase);
+    const color = '#27ae60'; // Default green color
     const isSelected = this.state.selectedTask === task.taskDataId;
     const isScrollingTo = this.state.scrollingToTask === task.taskDataId;
     
@@ -1348,15 +1312,6 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
           display: 'flex',
           alignItems: 'center'
         }}>
-          Phase
-        </div>
-        <div style={{ 
-          width: 100, 
-          padding: '12px 8px', 
-          borderRight: '1px solid #dee2e6',
-          display: 'flex',
-          alignItems: 'center'
-        }}>
           Start Date
         </div>
         <div style={{ 
@@ -1408,7 +1363,7 @@ export class ImprovedGanttChart extends React.Component<IImprovedGanttProps, IIm
     const hierarchy = this.buildHierarchy();
     const visibleTasks = this.flattenHierarchy(hierarchy);
     const { timelineWidth } = this.state;
-    const gridWidth = 847; // Updated width for left grid (80 + 300 + 100 + 100 + 100 + 80 + 80 + 7 for borders)
+    const gridWidth = 747; // Updated width for left grid (80 + 300 + 100 + 100 + 80 + 80 + 7 for borders)
 
     // Debug logging
     console.log(`ImprovedGanttChart render: ${this.props.tasks.length} input tasks, ${hierarchy.length} hierarchy nodes, ${visibleTasks.length} visible tasks`);

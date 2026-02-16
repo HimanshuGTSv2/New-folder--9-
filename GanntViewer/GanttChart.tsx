@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { TaskData } from './types';
-import { projectPhases, staticTaskData } from './data';
+import { staticTaskData } from './data';
 import { DataverseService } from './DataverseService';
 import { ImprovedGanttChart } from './ImprovedGanttChart';
 import { IInputs } from './generated/ManifestTypes';
@@ -287,7 +287,6 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
         console.log('Sample transformed task:', {
           id: sampleTask.taskDataId,
           name: sampleTask.taskName,
-          phase: sampleTask.taskPhase,
           startDate: sampleTask.startDate,
           finishDate: sampleTask.finishDate,
           isSummaryTask: sampleTask.isSummaryTask,
@@ -430,32 +429,17 @@ export class GanttChart extends React.Component<IGanttChartProps, IGanttChartSta
 
     return (
       <div style={{ width: '100%', height, minWidth: '1200px', overflow: 'auto' }}>
-        {/* Phase legend */}
         <div style={{ 
           padding: '10px', 
           borderBottom: '1px solid #ccc',
           backgroundColor: '#f9f9f9',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           gap: '15px',
           flexWrap: 'wrap',
           minWidth: '1200px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 'bold' }}>Phases:</span>
-            {projectPhases.map(phase => (
-              <div key={phase.id} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <div style={{
-                  width: '12px',
-                  height: '12px',
-                  backgroundColor: phase.color,
-                  borderRadius: '2px'
-                }}></div>
-                <span style={{ fontSize: '12px' }}>{phase.name}</span>
-              </div>
-            ))}
-          </div>
           
           {/* Refresh Button */}
           <button

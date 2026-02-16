@@ -16,37 +16,6 @@ const ganttShimmerStyles = `
     padding: 12px 16px;
   }
 
-  .gantt-shimmer-phase-legend {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    margin-bottom: 12px;
-  }
-
-  .gantt-shimmer-legend-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .gantt-shimmer-legend-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-  }
-
-  .gantt-shimmer-legend-text {
-    width: 60px;
-    height: 12px;
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    border-radius: 4px;
-  }
-
   .gantt-shimmer-view-tabs {
     display: flex;
     gap: 8px;
@@ -102,11 +71,6 @@ const ganttShimmerStyles = `
     justify-content: flex-start;
   }
 
-  .gantt-shimmer-header-cell.phase-column {
-    width: 100px;
-    min-width: 100px;
-  }
-
   .gantt-shimmer-header-cell.date-column {
     width: 110px;
     min-width: 110px;
@@ -151,10 +115,6 @@ const ganttShimmerStyles = `
 
   .gantt-shimmer-header-content.task-title {
     width: 80px;
-  }
-
-  .gantt-shimmer-header-content.phase-title {
-    width: 50px;
   }
 
   .gantt-shimmer-header-content.date-title {
@@ -220,12 +180,6 @@ const ganttShimmerStyles = `
     min-width: 200px;
   }
 
-  .gantt-shimmer-cell.phase-cell {
-    width: 100px;
-    min-width: 100px;
-    justify-content: center;
-  }
-
   .gantt-shimmer-cell.date-cell {
     width: 110px;
     min-width: 110px;
@@ -285,33 +239,6 @@ const ganttShimmerStyles = `
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
     border-radius: 4px;
-  }
-
-  .gantt-shimmer-phase-badge {
-    width: 70px;
-    height: 24px;
-    background: linear-gradient(90deg, #e0f3ff 25%, #cce7ff 50%, #e0f3ff 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    border-radius: 12px;
-  }
-
-  .gantt-shimmer-phase-badge.planning {
-    background: linear-gradient(90deg, #e8f5e8 25%, #d4f4d4 50%, #e8f5e8 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-  }
-
-  .gantt-shimmer-phase-badge.selection {
-    background: linear-gradient(90deg, #e3f2fd 25%, #bbdefb 50%, #e3f2fd 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-  }
-
-  .gantt-shimmer-phase-badge.execution {
-    background: linear-gradient(90deg, #f3e5f5 25%, #e1bee7 50%, #f3e5f5 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
   }
 
   .gantt-shimmer-date {
@@ -429,7 +356,6 @@ const ganttShimmerStyles = `
     .gantt-shimmer-expand-icon,
     .gantt-shimmer-task-name,
     .gantt-shimmer-wbs,
-    .gantt-shimmer-phase-badge,
     .gantt-shimmer-date,
     .gantt-shimmer-duration,
     .gantt-shimmer-progress,
@@ -467,15 +393,11 @@ const GanttTimelineShimmer: React.FC<GanttTimelineShimmerProps> = ({
   const currentYear = new Date().getFullYear();
   const shimmerYears = Array.from({ length: yearCount }, (_, i) => currentYear - 5 + i);
 
-  // Phase types with colors
-  const phaseTypes = ['initiation', 'planning', 'selection', 'execution', 'closure'];
-
   // Generate shimmer rows with hierarchy
   const shimmerRows = Array.from({ length: rowCount }, (_, index) => {
     const isParent = index % 7 === 0; // Every 7th row is a parent
     const isMilestone = index % 5 === 4; // Every 5th row is a milestone
     const indent = isParent ? 0 : 1;
-    const phase = phaseTypes[Math.floor(Math.random() * phaseTypes.length)];
     
     // Calculate timeline bar position and width (random for variety)
     const startYear = Math.floor(Math.random() * 3); // Start within first 3 years
@@ -488,7 +410,6 @@ const GanttTimelineShimmer: React.FC<GanttTimelineShimmerProps> = ({
       isParent,
       isMilestone,
       indent,
-      phase,
       wbsWidth: isParent ? 20 : 30,
       taskNameWidth: isParent ? 140 : 120,
       barLeft,
@@ -498,19 +419,8 @@ const GanttTimelineShimmer: React.FC<GanttTimelineShimmerProps> = ({
 
   const shimmerContent = (
     <div className="gantt-shimmer-grid">
-      {/* Header with Phase Legend and View Tabs */}
+      {/* Header with View Tabs */}
       <div className="gantt-shimmer-header">
-        <div className="gantt-shimmer-phase-legend">
-          <span style={{ fontSize: '12px', fontWeight: '600', marginRight: '8px', color: '#605e5c' }}>
-            Phases:
-          </span>
-          {Array.from({ length: 5 }, (_, i) => (
-            <div key={i} className="gantt-shimmer-legend-item">
-              <div className="gantt-shimmer-legend-dot" />
-              <div className="gantt-shimmer-legend-text" />
-            </div>
-          ))}
-        </div>
         <div>
           <span style={{ fontSize: '12px', fontWeight: '600', marginRight: '8px', color: '#605e5c' }}>
             View:
@@ -531,9 +441,6 @@ const GanttTimelineShimmer: React.FC<GanttTimelineShimmerProps> = ({
           </div>
           <div className="gantt-shimmer-header-cell task-column">
             <div className="gantt-shimmer-header-content task-title" />
-          </div>
-          <div className="gantt-shimmer-header-cell phase-column">
-            <div className="gantt-shimmer-header-content phase-title" />
           </div>
           <div className="gantt-shimmer-header-cell date-column">
             <div className="gantt-shimmer-header-content date-title" />
@@ -580,11 +487,6 @@ const GanttTimelineShimmer: React.FC<GanttTimelineShimmerProps> = ({
               </div>
             </div>
 
-            {/* Phase Column */}
-            <div className="gantt-shimmer-cell phase-cell">
-              <div className={`gantt-shimmer-phase-badge ${row.phase}`} />
-            </div>
-
             {/* Start Date Column */}
             <div className="gantt-shimmer-cell date-cell">
               <div className="gantt-shimmer-date" />
@@ -615,7 +517,7 @@ const GanttTimelineShimmer: React.FC<GanttTimelineShimmerProps> = ({
               />
             ) : (
               <div 
-                className={`gantt-shimmer-timeline-bar ${row.phase}`}
+                className="gantt-shimmer-timeline-bar"
                 style={{
                   left: row.barLeft,
                   width: row.barWidth,
